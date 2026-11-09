@@ -1,6 +1,6 @@
 {
  "version": 1,
- "built": "2026-11-09T08:39:13Z",
+ "built": "2026-11-09T09:15:01Z",
  "projection": {
   "lon0": -122.55000000000001,
   "lat0": 46.25,
@@ -1364,14 +1364,17 @@
    "segments": 34081
   }
  },
- "lakes": {
-  "file": "lakes.png",
-  "width": 2801,
-  "height": 2129,
-  "west": -128.80223214285715,
-  "north": 51.002232142857146,
-  "east": -116.29776785714287,
-  "south": 41.49776785714286
+ "water": {
+  "overview": {
+   "file": "water.png",
+   "per_deg": 256,
+   "width": 3201,
+   "height": 2433
+  },
+  "tiles": {
+   "dir": "terrain/water",
+   "per_deg": 1024
+  }
  },
  "places": {
   "file": "places.json",
