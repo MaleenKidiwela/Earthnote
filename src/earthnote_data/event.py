@@ -1,7 +1,7 @@
 """The storm layer: hourly rain, wind and temperature for one event window, observed and forecast, as web frames.
 
     PYTHONPATH=src .venv/bin/python -m earthnote_data.event              # fetch what is new, rewrite event.json
-    PYTHONPATH=src .venv/bin/python -m earthnote_data.event --publish    # ... then push the frames to GitHub Pages
+    PYTHONPATH=src .venv/bin/python -m earthnote_data.event --publish    # ... then send the frames to the R2 bucket
 
 Frame k is the hour ending at start + (k + 1) h. Observed: MRMS rain (Pass 2 replaces Pass 1 when it appears) and
 HRRR analysis wind and temperature. Forecast: every 6-hourly HRRR (48 h, hourly) and ECMWF IFS run (3-hourly,
@@ -16,6 +16,7 @@ import argparse
 import concurrent.futures as cf
 import fcntl
 import json
+import os
 import shutil
 import subprocess
 import time
@@ -50,7 +51,7 @@ MET = W.LatLonGrid(-140.0, -112.0, 37.0, 54.0, 0.1)      # HRRR wind and tempera
 COARSE = W.LatLonGrid(-140.0, -112.0, 37.0, 54.0, 0.25)  # ECMWF, at its native spacing
 GUST = W.LatLonGrid(REGION.WEST, REGION.EAST, REGION.SOUTH, REGION.NORTH, 0.03)   # gusts on land, the map's region
 OUT = BUNDLE.parent / "events" / EVENT["key"]
-SITE = ROOT / "data" / "site"
+R2_KEYFILE = Path.home() / ".config" / "earthnote" / "r2.env"
 
 
 def frame_of(valid: datetime) -> int:
@@ -523,26 +524,36 @@ def update(workers: int = 24, log=print) -> dict:
     return doc
 
 
+def _r2_env() -> dict:
+    """rclone's settings for the R2 bucket, from ~/.config/earthnote/r2.env (R2_ACCOUNT_ID, R2_ACCESS_KEY_ID,
+    R2_SECRET_ACCESS_KEY, R2_BUCKET, R2_PUBLIC_URL)."""
+    if not R2_KEYFILE.exists():
+        raise SystemExit(f"No R2 keys at {R2_KEYFILE}")
+    c = dict(line.split("=", 1) for line in R2_KEYFILE.read_text().splitlines() if "=" in line and not line.startswith("#"))
+    c = {k.strip(): v.strip().strip("\"'") for k, v in c.items()}
+    return {**os.environ, "RCLONE_CONFIG_R2_TYPE": "s3", "RCLONE_CONFIG_R2_PROVIDER": "Cloudflare",
+            "RCLONE_CONFIG_R2_ACCESS_KEY_ID": c["R2_ACCESS_KEY_ID"], "RCLONE_CONFIG_R2_SECRET_ACCESS_KEY": c["R2_SECRET_ACCESS_KEY"],
+            "RCLONE_CONFIG_R2_ENDPOINT": f"https://{c['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com",
+            "RCLONE_CONFIG_R2_NO_CHECK_BUCKET": "true", "R2_BUCKET": c["R2_BUCKET"]}
+
+
 def publish(log=print) -> None:
-    """Mirror the event frames into the Pages checkout and push a commit (an ordinary push; history only grows)."""
-    if not (SITE / ".git").exists():
-        raise SystemExit(f"No Pages checkout at {SITE}")
-    dest = SITE / "events" / EVENT["key"]
-    dest.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["rsync", "-a", "--delete", f"{OUT}/", f"{dest}/"], check=True)   # mirror: no stale frames
-    git = lambda *a: subprocess.run(["git", "-C", str(SITE), *a], check=True, capture_output=True, text=True)
-    git("add", "-A")
-    if not git("status", "--porcelain").stdout.strip():
-        log("site already up to date"); return
+    """Mirror the event frames to the R2 bucket the site reads them from: only changed files are sent, frames first
+    and event.json last (so a viewer never sees an hour whose frames are not there yet), then stale frames go."""
+    env = _r2_env()
+    rclone = shutil.which("rclone") or str(Path.home() / ".local" / "bin" / "rclone")
+    dest = f"r2:{env['R2_BUCKET']}/events/{EVENT['key']}"
+    run = lambda *a: subprocess.run([rclone, *a, "-q", "--checksum", "--fast-list", "--transfers", "32", "--checkers", "32"],
+                                    env=env, check=True)   # errors go to the log
+    run("sync", f"{OUT}/", dest, "--exclude", "/event.json")
+    run("copyto", str(OUT / "event.json"), f"{dest}/event.json")
     stamp = json.loads((OUT / "event.json").read_text())["updated"]
-    git("commit", "-q", "-m", f"Storm data as of {stamp}")
-    git("push", "-q", "origin", "gh-pages")
     log(f"published storm data as of {stamp}")
 
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--publish", action="store_true", help="push the frames to the GitHub Pages branch afterwards")
+    ap.add_argument("--publish", action="store_true", help="send the frames to the R2 bucket the site reads them from afterwards")
     ap.add_argument("--workers", type=int, default=24)
     args = ap.parse_args(argv)
     lock = open(ROOT / "data" / ".event.lock", "w")

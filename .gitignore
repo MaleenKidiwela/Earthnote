@@ -4,7 +4,7 @@ __pycache__/
 *.pyc
 
 # Raw downloads and caches (GMRT grids, OSM extracts, Natural Earth) — rebuilt by the pipeline
-data/
+/data/
 
 # Web
 web/node_modules/

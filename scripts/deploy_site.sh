@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
-# Build the map and publish it (app, base-map bundle and storm frames) to the gh-pages branch (GitHub Pages).
-# The Pages checkout lives in data/site; frames and tiles are only ever added or replaced, so a plain push suffices.
+# Build the map and publish it (app and base-map bundle) to the gh-pages branch (GitHub Pages). The storm frames are
+# not on Pages: they live in the R2 bucket (see earthnote_data.event.publish). The Pages checkout lives in data/site.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SITE="$ROOT/data/site"
 cd "$ROOT/web"
 npm run build --silent
-rsync -a --delete --exclude .git --exclude .nojekyll dist/ "$SITE/"
+rsync -a --delete --exclude .git --exclude .nojekyll --exclude /events/ dist/ "$SITE/"
+rm -rf "$SITE/events"
 touch "$SITE/.nojekyll"
 cd "$SITE"
 git add -A
