@@ -549,6 +549,13 @@ def publish(log=print) -> None:
     run("copyto", str(OUT / "event.json"), f"{dest}/event.json")
     stamp = json.loads((OUT / "event.json").read_text())["updated"]
     log(f"published storm data as of {stamp}")
+    # the raw responses of the feeds that can't be fetched again (outages, roads, sewers, flood outlines, gauges):
+    # a copy in the bucket's archive/ (public data; nothing links to it), never deleted there
+    try:
+        run("copy", f"{ROOT / 'data' / 'archive'}/", f"r2:{env['R2_BUCKET']}/archive")
+        log("archive backed up to R2")
+    except subprocess.CalledProcessError as e:
+        log(f"archive backup to R2 failed (rclone exit {e.returncode})")
 
 
 def main(argv=None) -> None:
