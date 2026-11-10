@@ -1,0 +1,10 @@
+/* Design tokens shared with the Cascadia and Rainier atlases: a dark, quiet frame so the terrain carries the colour. */
+:root {
+  --surface-0: #121211; --surface-1: #1a1a19; --surface-2: #232321;
+  --hairline: rgba(255, 255, 255, 0.08); --hairline-strong: rgba(255, 255, 255, 0.16);
+  --text-primary: #ffffff; --text-secondary: #deddd6; --text-muted: #a9a79f;
+  --accent: #5a7fb0; --good: #0ca30c; --critical: #d03b3b;
+  --left-inset: 16px; --right-inset: 16px;
+  --font-sans: "IBM Plex Sans", system-ui, sans-serif; --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

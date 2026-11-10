@@ -1,0 +1,15 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Raw downloads and caches (GMRT grids, OSM extracts, Natural Earth) — rebuilt by the pipeline
+data/
+
+# Web
+web/node_modules/
+web/dist/
+# the map data bundle is built, not committed (about 60 MB)
+web/public/pnw/
+# storm data, rebuilt hourly by scripts/update_storm.sh and published to gh-pages (about 200 MB)
+web/public/events/

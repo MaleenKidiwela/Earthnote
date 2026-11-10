@@ -1,0 +1,49 @@
+.place-layer { position: absolute; inset: 0; }
+.place { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 180ms ease; white-space: nowrap; pointer-events: none;
+  display: flex; align-items: center; gap: 5px; transform-origin: 0 0; margin-top: -8px; }
+.place i { display: block; width: 5px; height: 5px; border-radius: 50%; background: #f4f1ea; box-shadow: 0 0 0 1.5px #121211; flex: none; margin-left: -2.5px; }
+.place span { font-size: 11px; color: #ecebe6; text-shadow: 0 0 2px #0b0b0a, 0 0 4px #0b0b0a, 0 0 7px #0b0b0a; letter-spacing: 0.01em; }
+.place.city span { font-size: 12px; font-weight: 500; color: #ffffff; }
+.place.major span { font-size: 13px; font-weight: 600; letter-spacing: 0.02em; }
+.place.major i { width: 7px; height: 7px; margin-left: -3.5px; }
+.place.town i { width: 4px; height: 4px; margin-left: -2px; background: #d8d4c8; }
+.place.peak i { width: 0; height: 0; border-radius: 0; background: none; box-shadow: none; margin-left: -4px;
+  border-left: 4px solid transparent; border-right: 4px solid transparent; border-bottom: 7px solid #f4f1ea; filter: drop-shadow(0 0 1.5px #121211); }
+.place.peak span { font-style: italic; color: #e6e1d6; }
+.res-layer { pointer-events: none; }
+.res { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 180ms ease; white-space: nowrap; display: flex; align-items: center; gap: 5px;
+  margin-top: -9px; padding: 1px 6px 1px 4px; border-radius: 9px; background: rgba(16, 26, 34, 0.78); border: 1px solid rgba(143, 194, 242, 0.35); cursor: default; }
+.res i { width: 7px; height: 9px; border: 1.5px solid #8fc2f2; border-top: 0; border-radius: 0 0 2px 2px; flex: none; }
+.res .n { font-size: 10.5px; color: #dfe8ef; }
+.res .v { font-size: 10.5px; color: #b9c4cc; }
+.res.up { border-color: rgba(92, 170, 255, 0.85); } .res.up .v { color: #7cc0ff; font-weight: 600; }
+.res.down .v { color: #e0b27a; }
+.res.latest { filter: saturate(0.4) brightness(0.8); } .res.latest .v::after { content: " ·"; }
+.res-tip { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; z-index: 5; width: 236px; padding: 7px 8px; border-radius: 6px;
+  background: rgba(20, 20, 18, 0.94); border: 1px solid rgba(255, 255, 255, 0.16); color: #ecebe6; font-size: 11.5px; transition: opacity 120ms; }
+.res-tip b { display: block; font-size: 12.5px; } .res-tip .sub { color: #9a978e; font-size: 10px; margin: 1px 0 3px; }
+.res-tip svg { display: block; margin: 5px 0 2px; } .res-tip path { fill: none; stroke: #7cc0ff; stroke-width: 1.5; }
+.res-tip line { stroke: #f2c46d; stroke-width: 1; }
+.res.stuck { border-style: dashed; border-color: rgba(200, 200, 190, 0.35); } .res.stuck .v { color: #8d8a82; font-style: italic; }
+.res-tip .warn { color: #e0b27a; font-size: 10.5px; margin: 2px 0 3px; }
+.gauge { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 180ms ease; white-space: nowrap; display: flex; align-items: center; gap: 5px;
+  margin-top: -9px; padding: 1px 6px 1px 3px; border-radius: 9px; background: rgba(18, 18, 16, 0.78); border: 1px solid rgba(255, 255, 255, 0.18); cursor: default; }
+.gauge i { width: 9px; height: 9px; border-radius: 50%; flex: none; background: #6fb4e8; box-shadow: 0 0 0 1.5px #121211; }
+.gauge .n { font-size: 10.5px; color: #e4e2dc; } .gauge .v { font-size: 10.5px; color: #b9b6ad; }
+.gauge[data-cat="action"] i { background: #f2cf3d; } .gauge[data-cat="minor"] i { background: #f39431; }
+.gauge[data-cat="moderate"] i { background: #e2483a; } .gauge[data-cat="major"] i { background: #b03fd0; }
+.gauge:not([data-cat="normal"]) { border-color: rgba(242, 207, 61, 0.6); } .gauge:not([data-cat="normal"]) .v { color: #f4e3a8; font-weight: 600; }
+.gauge.fc { border-style: dashed; } .gauge.fc .v::after { content: " (fcst)"; font-weight: 400; color: #9a978e; }
+.gauge-tip { width: 280px; } .gauge-tip .cat-line { display: flex; align-items: center; gap: 5px; margin: 2px 0; }
+.gauge-tip .cat-line i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.gauge-tip .impact { font-size: 11px; line-height: 1.4; margin: 4px 0; color: #ecebe6; } .gauge-tip .impact.next { color: #a9a69d; }
+.gauge-tip path.fc { stroke-dasharray: 3 3; stroke: #f2c46d; } .gauge-tip line.cat { stroke-width: 1; stroke-dasharray: 2 2; opacity: 0.8; }
+.gauge.tide i { border-radius: 2px; background: #9fe0f0; }
+.gauge.tide[data-cat="minor"] i { background: #f39431; } .gauge.tide[data-cat="moderate"] i { background: #e2483a; } .gauge.tide[data-cat="major"] i { background: #b03fd0; }
+.gauge.tide.fc .v::after { content: " (tide)"; }
+.res.snow i { width: 8px; height: 8px; border: 1.5px solid #e8f2ff; border-radius: 1px; transform: rotate(45deg) scale(0.85); }
+.res.snow.up .v { color: #cfe6ff; } .res.snow.down .v { color: #e0b27a; font-weight: 600; }
+.res.soil i { width: 8px; height: 8px; border: 1.5px solid #c9a46b; border-radius: 2px; }
+.res.soil.up .v { color: #a8d672; font-weight: 600; } .res.soil.up { border-color: rgba(168, 214, 114, 0.7); } .res.soil.down .v { color: #d9b27a; }
+.res.well i { width: 8px; height: 8px; border: 1.5px solid #6fd3c1; border-radius: 50%; }
+.res.well.up .v { color: #6fd3c1; font-weight: 600; } .res.well.up { border-color: rgba(111, 211, 193, 0.8); }
