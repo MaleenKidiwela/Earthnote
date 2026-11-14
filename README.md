@@ -1,7 +1,7 @@
 # Earthnote
 
 A 3D map of the Pacific Northwest — Washington, Oregon, southern British Columbia and the offshore margin — built as
-the base for monitoring storms across the region (first: the November 2026 atmospheric rivers, Nov 7–15). Shaded-relief
+the base for monitoring storms across the region (first: the November 2026 atmospheric rivers, Nov 7–16). Shaded-relief
 terrain with roads, borders, lakes and place names, in 3D or flat 2D, in the style of the Cascadia and Mount Rainier
 atlases.
 

@@ -40,7 +40,7 @@ EVENT = {
     "key": "nov2026_ar",
     "title": "November 2026 atmospheric rivers",
     "start": datetime(2026, 11, 7, 8, tzinfo=W.UTC),   # Sat Nov 7 00:00 PST
-    "hours": 216,                                      # to Sun Nov 15 24:00 PST
+    "hours": 240,                                      # to Mon Nov 16 24:00 PST
     "tz": "America/Los_Angeles",
 }
 RUNS_FROM = datetime(2026, 11, 6, 0, tzinfo=W.UTC)    # forecasts issued from a day before the window
@@ -82,6 +82,12 @@ def load_state() -> dict:
     st["sewers"] = (st.get("sewers") or {}).get("frames", {})
     st.setdefault("sea", {"obs": []})
     st["sea"].setdefault("fc", {"run": None, "frames": []})
+    if st.get("hours", EVENT["hours"]) != EVENT["hours"]:
+        # the window was lengthened: runs cut off at the old end are fetched again for the new hours (frames already
+        # written are kept)
+        for runs in st["runs"].values():
+            for r in runs.values():
+                r["complete"] = r["gust"] = False
     rv = st.get("rivers", {})
     st["rivers"] = {"obs": rv.get("obs", []), "whatif": rv.get("whatif", {}), "inundation": rv.get("inundation", {})}
     return st
