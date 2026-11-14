@@ -1,0 +1,17 @@
+[
+  {"route": "bcf:TSA-SWB", "status": "cancelled", "cause": "weather",
+   "from": "2026-11-07T12:37:00-08:00", "to": "2026-11-07T22:35:00-08:00",
+   "title": "Sailing cancellations: 7 p.m. and 9 p.m. departures from Tsawwassen and Swartz Bay",
+   "text": "\"Four sailings between Tsawwassen and Swartz Bay have been cancelled due to forecast high winds and wave heights in the Strait of Georgia. The cancellations affect the 7 p.m. and 9 p.m. departures from both terminals Saturday, making the 5 p.m. departures the final scheduled sailings of the evening on the route.\" Alternate service via Tsawwassen–Duke Point. Shown from the report (12:37 p.m.) to the end of the last cancelled crossing.",
+   "outlet": "Victoria News, Nov 7 12:37 p.m.", "url": "https://vicnews.com/2026/11/07/high-winds-force-bc-ferries-cancellations-near-victoria/"},
+  {"route": "bcf:TSA-SWB", "status": "at risk", "cause": "weather",
+   "from": "2026-11-07T12:37:00-08:00", "to": "2026-11-08T10:35:00-08:00",
+   "title": "At risk: Sunday 7 a.m. and 9 a.m. departures from Tsawwassen and Swartz Bay",
+   "text": "\"The 7 a.m. and 9 a.m. departures from both Tsawwassen and Swartz Bay are currently at risk of cancellation.\" No report says whether they sailed.",
+   "outlet": "Victoria News, Nov 7 12:37 p.m.", "url": "https://vicnews.com/2026/11/07/high-winds-force-bc-ferries-cancellations-near-victoria/"},
+  {"route": "bcf:CMX-PWR", "status": "cancelled", "cause": "weather",
+   "from": "2026-11-11T09:53:00-08:00", "to": "2026-11-11T13:20:00-08:00",
+   "title": "Sailing cancellations: 9:55 a.m. from Little River (Comox) and noon from Westview (Powell River)",
+   "text": "\"High winds and rough seas have forced BC Ferries to cancel two sailings between Comox and Powell River\": the 9:55 a.m. departure from Little River and the noon departure from Westview, for \"unfavourable sea conditions in the Strait of Georgia.\" Sailings to resume with the 3:15 p.m. from Little River. Shown from the report (9:53 a.m.) to the end of the noon crossing.",
+   "outlet": "CHEK News, Nov 11 9:53 a.m.", "url": "https://cheknews.ca/stormy-weather-forces-comox-powell-river-ferry-cancellations-1360651/"}
+]

@@ -90,3 +90,18 @@ describe("sewer overflows", async () => {
     expect(sewerHour({ sewers: { frames: { 3: 1 } } }, 4)).toBe(3); expect(sewerHour({ roads: { frames: { 3: {} } } }, 3)).toBeNull();
   });
 });
+
+describe("ferries", async () => {
+  const { midpoint, routeStates } = await import("../scene/FerryLayer.js");
+  it("puts the ship halfway along the crossing", () => {
+    expect(midpoint([[0, 0], [1, 0], [3, 0]])).toEqual([1.5, 0]);
+  });
+  it("a route's newest notice sets its status; notices with no route are kept apart", () => {
+    const n = (routes, status, posted, cause = null) => ({ routes, status, posted, cause, title: status });
+    const s = routeStates({ items: [n(["wsf:8"], "cancelled", 1, "weather"), n(["wsf:8"], "resuming", 2), n([], "delayed", 3), n(["wsf:13", "wsf:14"], "out of service", 1)] });
+    expect(s.get("wsf:8").status).toBe("resuming");
+    expect(s.get("wsf:8").cause).toBe("weather");   // why it stopped, from the earlier notice
+    expect(s.get("wsf:14").status).toBe("out of service");
+    expect(s.get("").items).toHaveLength(1);
+  });
+});

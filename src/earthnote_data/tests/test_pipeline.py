@@ -201,3 +201,60 @@ def test_sewer_frames_show_only_overflows_during_each_hour(tmp_path, monkeypatch
     assert state(67) == {"Montlake": "none", "Kingdome": "overflowing", "Clark Drive #1": "overflowing", "Westridge": "none"}
     assert state(68)["Kingdome"] == "none" and state(68)["Clark Drive #1"] == "none" and "recent" not in fr[68]["counts"]
     assert state(65) == {}   # Westridge (Nov 6) began before the storm
+
+
+def test_ferry_notices_classified():
+    from earthnote_data import ferries as FY
+    c = FY.classify
+    assert c("PT/Coup - Cancelled sailings due to high winds and rough seas") == ("cancelled", "weather")
+    assert c("Sailing Delay", "departed 69 minutes behind schedule due to a mechanical issue. Arrive in the check-in window") == ("delayed", "mechanical")
+    assert c("PD/Tah - Route may go out of service after the Tah 7:00pm Sailing", "due to a shortage of crew") == ("at risk", "crew")
+    assert c("PT/Coup - Update - Kennewick out of service, due to high winds") == ("out of service", "weather")
+    assert c("Faunt/Va/SW - #1 Kittitas to resume service with 210p Faunt Departure") == ("resuming", None)
+    for planned in ("PT/Coup - Tidal Cancellations for Monday, November 9", "Winter vehicle reservations release is tomorrow",
+                    "Muk/Clin - ADA Alert - #2 end elevator on the Suquamish is unavailable"):
+        assert c(planned) is None
+    assert c("Sailing Cancellations – November 18", "Sailing Cancellations – Scheduled Maintenance Little River") is None
+    assert FY.bcf_route("Vancouver (Tsawwassen) - Victoria (Swartz Bay)") == "bcf:TSA-SWB"
+    assert FY.bcf_route("Victoria (Swartz Bay) - Southern Gulf Islands") == "bcf:SWB-SGI"
+
+
+def test_bc_ferries_pages_parsed():
+    from earthnote_data import ferries as FY
+    page = ('<h3 class="service-region" id="Vancouver Island">Metro Vancouver - Vancouver Island</h3><hr/>'
+            '<a href="?serviceNoticeCode=88041&subscriptionRoute=HSB-DEP">\n   Sailing Delay&nbsp;-&nbsp;Vancouver (Horseshoe Bay) - Nanaimo (Departure Bay)</a>')
+    assert FY.parse_list(page) == [{"code": "88041", "sub": "HSB-DEP", "region": "Metro Vancouver - Vancouver Island", "title": "Sailing Delay",
+                                    "route": "Vancouver (Horseshoe Bay) - Nanaimo (Departure Bay)"}]
+    n = FY.parse_notice("<p>Service notices</p><h1>Service notice&nbsp;-&nbsp;Sailing Delay</h1><p>Posted:</p><p>Saturday, November 14, 2026</p>"
+                        "<p>Re-Issued: 7:25 am</p><p>Our 6:15 am sailing departed late.</p><p>For up-to-date sailing and departure information</p>"
+                        "<b>Subscribe to service notices</b>")
+    assert n == {"posted": "Saturday, November 14, 2026", "reissued": "7:25 am", "text": "Our 6:15 am sailing departed late."}
+    assert FY._posted_ms(n, 0) == 1794669900000   # 7:25 am PST
+
+
+def test_ferry_frames(tmp_path, monkeypatch):
+    import gzip, json
+    from datetime import datetime, timezone
+    from earthnote_data import ferries as FY, roads as RD
+    t = lambda s: datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
+    ms = lambda s: int(t(s).timestamp() * 1000)
+    alert = lambda i, title, pub, routes: {"id": i, "title": title, "text": "", "routes": routes, "published": ms(pub)}
+    monkeypatch.setattr(RD, "archived", lambda: [
+        (t("2026-11-10T03:20"), {"ferries": [alert(1, "PT/Coup - Cancelled sailings due to high winds", "2026-11-10T01:10", [8]),
+                                              alert(2, "Faunt/Va/SW - Kittitas out of service due to mechanical issue", "2026-11-06T10:00", [13, 14, 15])]}),
+        (t("2026-11-10T04:25"), {"ferries": [alert(3, "PT/Coup - Route resumes service", "2026-11-10T04:00", [8])]})])
+    monkeypatch.setattr(FY, "ARCHIVE", tmp_path)
+    monkeypatch.setattr(FY, "NEWS", tmp_path / "news.json")
+    (tmp_path / "news.json").write_text(json.dumps([{"route": "bcf:TSA-SWB", "status": "cancelled", "cause": "weather", "from": "2026-11-07T12:37:00-08:00",
+                                                    "to": "2026-11-07T22:35:00-08:00", "title": "7 and 9 p.m. cancelled", "text": "", "outlet": "Victoria News", "url": "u"}]))
+    with gzip.open(tmp_path / "202611100430.json.gz", "wt") as f:
+        json.dump({"time": "2026-11-10T04:30:00+00:00", "ok": True, "notices": [
+            {"code": "9", "title": "Sailing Delay", "route": "Vancouver (Tsawwassen) - Victoria (Swartz Bay)", "text": "due to high winds",
+             "posted": "Monday, November 09, 2026", "reissued": "8:05 pm"}]}, f)
+    fr = FY.frames(t("2026-11-07T08:00"), 240)
+    what = lambda k: [(i["src"], i["routes"], i["status"]) for i in fr[k]["items"]]
+    assert what(12) == [("news", ["bcf:TSA-SWB"], "cancelled")] and fr[12]["partial"]   # Nov 7 20:00Z, from the report at 12:37 PST
+    assert what(10) == [] and 23 in fr and what(23) == []   # before the report; after the last crossing
+    assert what(65) == [("wsf", ["wsf:8"], "cancelled")]   # 01:10Z, rebuilt from the first snapshot; the Kittitas alert is from before the storm
+    assert what(68) == [("bcf", ["bcf:TSA-SWB"], "delayed"), ("wsf", ["wsf:8"], "resuming")]
+    assert fr[68]["counts"]["delayed"] == 1 and fr[68]["items"][0]["url"].endswith("serviceNoticeCode=9")

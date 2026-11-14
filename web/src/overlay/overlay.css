@@ -47,3 +47,18 @@
 .res.soil.up .v { color: #a8d672; font-weight: 600; } .res.soil.up { border-color: rgba(168, 214, 114, 0.7); } .res.soil.down .v { color: #d9b27a; }
 .res.well i { width: 8px; height: 8px; border: 1.5px solid #6fd3c1; border-radius: 50%; }
 .res.well.up .v { color: #6fd3c1; font-weight: 600; } .res.well.up { border-color: rgba(111, 211, 193, 0.8); }
+.ferry { position: absolute; left: 0; top: 0; opacity: 0; transition: opacity 180ms ease; white-space: nowrap; display: flex; align-items: center; gap: 5px;
+  margin-top: -10px; padding: 1px 7px 1px 4px; border-radius: 10px; background: rgba(14, 20, 26, 0.85); border: 1px solid var(--fc, #ff4d4f); cursor: pointer; }
+.ferry > svg { width: 18px; height: 13px; flex: none; fill: var(--fc, #ff4d4f); }
+.ferry .n { font-size: 10.5px; color: #e8eef2; } .ferry .v { font-size: 10.5px; color: var(--fc, #ff4d4f); font-weight: 600; display: flex; align-items: center; gap: 3px; }
+.ferry .v svg { width: 13px; height: 10px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+.ferry[data-status="cancelled"], .ferry[data-status="out of service"] { --fc: #ff4d4f; }
+.ferry[data-status="at risk"] { --fc: #ffa53a; border-style: dashed; } .ferry[data-status="delayed"] { --fc: #f6d04d; }
+.ferry[data-status="resuming"] { --fc: #5fd38d; }
+.ferry.weather { box-shadow: 0 0 0 0 var(--fc); animation: ferry-pulse 2.2s ease-out infinite; }
+@keyframes ferry-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--fc) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
+@media (prefers-reduced-motion: reduce) { .ferry.weather { animation: none; } }
+.ferry-tip { width: 300px; } .ferry-tip .fn { margin: 6px 0 2px; padding-top: 5px; border-top: 1px solid rgba(255, 255, 255, 0.1); }
+.ferry-tip .st { display: flex; align-items: center; gap: 5px; font-weight: 600; font-size: 11px; }
+.ferry-tip .st i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.ferry-tip .t { font-size: 11.5px; margin: 2px 0; } .ferry-tip .x { font-size: 10.5px; line-height: 1.4; color: #c9c6bd; }

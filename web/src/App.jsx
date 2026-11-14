@@ -10,6 +10,7 @@ import { GustField } from "./scene/GustField.js";
 import { PowerLayer } from "./scene/PowerLayer.js";
 import PowerTip from "./ui/PowerTip.jsx";
 import { RoadLayer } from "./scene/RoadLayer.js";
+import { FerryLayer } from "./scene/FerryLayer.js";
 import { SewerLayer } from "./scene/SewerLayer.js";
 import MarkerTip, { roadTip, sewerTip } from "./ui/MarkerTip.jsx";
 import { TideMarkers } from "./overlay/TideMarkers.js";
@@ -54,13 +55,13 @@ function MapView({ bundle, onError }) {
   const [detail, setDetail] = useState("1 km"), [active, setActive] = useState("home"), [dock, setDock] = useState(() => new Set(["view"]));
 
   useEffect(() => {
-    let sc, lb, atm, pw, rd, sw, res, snow, soil, wells, gau, fl, sea, tid, poll, cancelled = false, n = 0, last = performance.now();
+    let sc, lb, atm, pw, rd, sw, fy, res, snow, soil, wells, gau, fl, sea, tid, poll, cancelled = false, n = 0, last = performance.now();
     PnwScene.create(canvasRef.current, bundle).then(s => {
       if (cancelled) { s.dispose(); return; }
       sc = s; lb = new PlaceLabels(overlayRef.current, bundle.places, s);
       s.onFrame = () => {
         const now = performance.now(), dt = Math.min(0.1, (now - last) / 1000); last = now;
-        lb.update(); res?.update(); snow?.update(); soil?.update(); wells?.update(); gau?.update(); tid?.update(); sea?.update(dt, s.frame.dist, s.controls.target); atm?.update(dt, s.frame.dist);
+        lb.update(); fy?.update(); res?.update(); snow?.update(); soil?.update(); wells?.update(); gau?.update(); tid?.update(); sea?.update(dt, s.frame.dist, s.controls.target); atm?.update(dt, s.frame.dist);
         if (n++ % 15 === 0) setDetail(detailText(s.frame));
       };
       setScene(s); setLabels(lb);
@@ -70,7 +71,9 @@ function MapView({ bundle, onError }) {
         pw = doc.power ? new PowerLayer(s.scene, bundle.P, s.U, s.elevAt) : null;
         rd = doc.roads ? new RoadLayer(s.scene, bundle.P, s.U, s.elevAt) : null;
         sw = doc.sewers ? new SewerLayer(s.scene, bundle.P, s.U, s.elevAt) : null;
-        setStorm({ doc, layer: atm, gusts: doc.grids.gust ? new GustField(s.U, bundle.P, doc.grids.gust) : null, power: pw, roads: rd, sewers: sw });
+        fy = doc.ferries ? new FerryLayer(s.scene, overlayRef.current, s) : null;
+        fy?.load(doc).catch(() => {});
+        setStorm({ doc, layer: atm, gusts: doc.grids.gust ? new GustField(s.U, bundle.P, doc.grids.gust) : null, power: pw, roads: rd, sewers: sw, ferries: fy });
         res = new ReservoirMarkers(overlayRef.current, s);
         setReservoirs(res);
         if (doc.credits?.ground) {   // snow, soil and groundwater stations
@@ -102,7 +105,7 @@ function MapView({ bundle, onError }) {
         }).catch(() => {}), 10 * 60e3);
       }).catch(() => {});
     }, onError);
-    return () => { cancelled = true; clearInterval(poll); lb?.dispose(); res?.dispose(); snow?.dispose(); soil?.dispose(); wells?.dispose(); gau?.dispose(); fl?.dispose(); pw?.dispose(); rd?.dispose(); sw?.dispose(); sea?.dispose(); tid?.dispose(); atm?.dispose(); sc?.dispose(); };
+    return () => { cancelled = true; clearInterval(poll); lb?.dispose(); res?.dispose(); snow?.dispose(); soil?.dispose(); wells?.dispose(); gau?.dispose(); fl?.dispose(); pw?.dispose(); rd?.dispose(); sw?.dispose(); fy?.dispose(); sea?.dispose(); tid?.dispose(); atm?.dispose(); sc?.dispose(); };
   }, [bundle, onError]);
 
   const toggleDock = key => setDock(o => { const n = new Set(o); if (!n.delete(key)) n.add(key); return n; });
@@ -120,7 +123,7 @@ function MapView({ bundle, onError }) {
             { key: "help", label: "Help", icon: "help", node: <HelpPanel manifest={bundle.manifest} /> },
           ]} />
           <GoTo active={active} onPlace={k => { setActive(k); scene.flyTo(k); }} />
-          {storm && <StormPanel doc={storm.doc} layer={storm.layer} gusts={storm.gusts} power={storm.power} roads={storm.roads} sewers={storm.sewers} rivers={rivers} reservoirs={reservoirs} ground={ground} gauges={gauges} floods={floods} sea={sea} />}
+          {storm && <StormPanel doc={storm.doc} layer={storm.layer} gusts={storm.gusts} power={storm.power} roads={storm.roads} sewers={storm.sewers} ferries={storm.ferries} rivers={rivers} reservoirs={reservoirs} ground={ground} gauges={gauges} floods={floods} sea={sea} />}
           {storm?.roads && <MarkerTip scene={scene} layer={storm.roads} canvas={canvasRef.current} render={roadTip} />}
           {storm?.sewers && <MarkerTip scene={scene} layer={storm.sewers} canvas={canvasRef.current} render={sewerTip} />}
           {storm?.power && <PowerTip scene={scene} layer={storm.power} canvas={canvasRef.current} utilities={storm.doc.power?.utilities} />}

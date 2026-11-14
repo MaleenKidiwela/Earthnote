@@ -7,6 +7,7 @@ import { CATS, CAT_COLORS } from "../overlay/GaugeMarkers.js";
 import { GUST_COLORS, GUST_MPH } from "../scene/GustField.js";
 import { OUTAGE_COLOR } from "../scene/PowerLayer.js";
 import { PASS_COLOR, ROAD_COLORS, ROAD_LABELS } from "../scene/RoadLayer.js";
+import { CAUSE_LABELS, FERRY_COLORS, FERRY_LABELS, routeStates } from "../scene/FerryLayer.js";
 import { SEWER_COLORS } from "../scene/SewerLayer.js";
 import { isTypingTarget } from "../scene/cameraMath.js";
 import "./ui.css";
@@ -77,6 +78,7 @@ const recordedHour = (frames = {}, k) => {
 export const powerHour = (doc, k) => recordedHour(doc.power?.frames, k);
 export const roadHour = (doc, k) => recordedHour(doc.roads?.frames, k);
 export const sewerHour = (doc, k) => recordedHour(doc.sewers?.frames, k);
+export const ferryHour = (doc, k) => recordedHour(doc.ferries?.frames, k);
 
 // Pure: the sea-model frame for hour k: its nowcast, or (after the newest nowcast, which NOAA posts 2-7 hours late,
 // and if whatIf) the newest run's forecast; null for neither.
@@ -101,7 +103,7 @@ export function gustSummary(data, n) {
   return { mph: Math.round(max / 0.44704), share: over.map(c => (land ? c / land : 0)) };
 }
 
-export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gauges, floods, sea, gusts, power, roads, sewers }) {
+export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gauges, floods, sea, gusts, power, roads, sewers, ferries }) {
   // decoded frames survive a refreshed event.json unless the window (and so the frame numbering) changed
   const cache = useMemo(() => new FrameCache(), [doc.version]);
   const series = useMemo(() => new RainSeries(doc, cache), [doc, cache]);
@@ -126,6 +128,8 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
   const roadCache = useRef(new Map());
   const [sewersOn, setSewersOn] = useState(true), [sewerInfo, setSewerInfo] = useState(null);
   const sewerCache = useRef(new Map());
+  const [ferriesOn, setFerriesOn] = useState(true), [ferryInfo, setFerryInfo] = useState(null);
+  const ferryCache = useRef(new Map());
   const [riversOn, setRiversOn] = useState(true), [whatIf, setWhatIf] = useState(true), [riverInfo, setRiverInfo] = useState(null);
   useEffect(() => { window.__storm = { setK, setFill, setSel, setWind, setOpen }; return () => { delete window.__storm; }; }, []);   // console / test hook
 
@@ -219,6 +223,20 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
       .catch(() => { sewerCache.current.delete(url); if (!stale) { sewers.set(null); setSewerInfo({ j: null }); } });
     return () => { stale = true; };
   }, [sewers, doc, k]);
+  // ferry disruptions in effect during the hour (BC Ferries before Nov 14 from news reports)
+  useEffect(() => { ferries?.setVisible(ferriesOn); }, [ferries, ferriesOn]);
+  useEffect(() => {
+    if (!ferries) return;
+    let stale = false;
+    const j = ferryHour(doc, k);
+    if (j === null) { ferries.set(null); setFerryInfo({ j: null }); return; }
+    const url = `${doc.base}ferries/k${String(j).padStart(3, "0")}.json?v=${doc.version}&u=${doc.updated}`;
+    let p = ferryCache.current.get(url);
+    if (!p) { p = fetch(url).then(r => r.json()); ferryCache.current.set(url, p); }
+    p.then(fr => { if (!stale) { ferries.set(fr); setFerryInfo({ j, ...fr, states: routeStates(fr) }); } })
+      .catch(() => { ferryCache.current.delete(url); if (!stale) { ferries.set(null); setFerryInfo({ j: null }); } });
+    return () => { stale = true; };
+  }, [ferries, doc, k]);
   // NOAA's flood outlines as recorded for the hour
   useEffect(() => { floods?.setVisible(floodOn); }, [floods, floodOn]);
   useEffect(() => {
@@ -332,7 +350,6 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
                   {Object.keys(ROAD_COLORS).filter(c => roadInfo.counts[c] > 0).map(c =>
                     <span key={c}><i style={{ background: ROAD_COLORS[c] }} />{roadInfo.counts[c]} {ROAD_LABELS[c]}</span>)}
                   {roadInfo.passes.some(p => p.closed && !p.earlier) && <span>passes closed: {roadInfo.passes.filter(p => p.closed && !p.earlier).map(p => p.name).join(", ")}</span>}
-                  {roadInfo.ferries.length > 0 && <span title={roadInfo.ferries.map(f => f.title).join("\n")}>{roadInfo.ferries.length} ferry alert{roadInfo.ferries.length === 1 ? "" : "s"}</span>}
                   {roadInfo.partial && <span title="Rebuilt from the reports still open when recording began (Nov 9, 7:20 PM PST), each placed back to its own time; ones already over by then are missing">partial: rebuilt from reports still open when recording began</span>}
                   {roadInfo.failed?.length > 0 && <span>no data from {roadInfo.failed.join(", ")}</span>}
                 </>}</span>
@@ -347,6 +364,18 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
                   {sewerInfo.partial && <span title="Before recording began (Nov 9, 7:20 PM PST) only Metro Vancouver's outfalls are shown, from its overflow start and end times; King County's map gives no times">partial: Metro Vancouver only before Nov 9, 7:20 PM</span>}
                   {sewerInfo.failed?.length > 0 && <span>no data from {sewerInfo.failed.join(", ")}</span>}
                 </>}</span>
+          </div>
+        )}
+        {ferries && ferriesOn && ferryInfo && (
+          <div className="st-rivers"><span className="mono">Ferries ·</span>
+            <span className="rv-counts">{ferryInfo.j === null
+              ? <span>{frameTime(doc, k) > Date.parse(doc.updated) ? "not recorded yet" : "nothing recorded for this hour"}</span>
+              : ferryInfo.states.size === 0 ? <span>no disruptions</span>
+              : [...ferryInfo.states].map(([id, st]) =>
+                  <span key={id || "other"} title={st.items.map(i => i.title).join("\n")}><i style={{ background: FERRY_COLORS[st.status] }} />
+                    {id ? st.newest.name : `${st.items.length} other notice${st.items.length === 1 ? "" : "s"}`} {st.status}{st.cause ? ` (${CAUSE_LABELS[st.cause]})` : ""}</span>)}
+              {ferryInfo.items?.some(i => i.src === "news") && <span title="BC Ferries keeps no history of its notices; disruptions before recording began (Nov 14) are from news reports, shown from the report to the last cancelled sailing">BC Ferries from news reports</span>}
+            </span>
           </div>
         )}
         {gusts && gustOn && gustInfo && (
@@ -424,6 +453,18 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
             <button className="tog" role="switch" aria-checked={sewersOn} onClick={() => setSewersOn(v => !v)}>
               <span className="sw" /><span className="t">Sewer overflows<small>combined sewer outfalls in Seattle and King County (King County's map) and Metro Vancouver, recorded each hour from Nov 9 (Metro Vancouver from its overflow times); a dot at each outfall overflowing during the hour</small></span>
             </button>
+          )}
+          {ferries && (
+            <>
+              <button className="tog" role="switch" aria-checked={ferriesOn} onClick={() => setFerriesOn(v => !v)}>
+                <span className="sw" /><span className="t">Ferries<small>Washington State Ferries alerts (recorded each hour from Nov 9) and BC Ferries service notices (from Nov 14; earlier from news reports): a route turns red, amber or green with a ship marking what happened and why; hover a ship for the notices, click for the source</small></span>
+              </button>
+              {ferriesOn && (
+                <div className="rv-legend">
+                  {["cancelled", "at risk", "delayed", "resuming"].map(c => <span key={c}><i style={{ background: FERRY_COLORS[c] }} />{FERRY_LABELS[c]}</span>)}
+                </div>
+              )}
+            </>
           )}
           {gusts && (
             <>

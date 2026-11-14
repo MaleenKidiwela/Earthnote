@@ -26,6 +26,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from . import ferries as FY
 from . import ground as GR
 from . import ocean as OC
 from . import power as PW
@@ -80,6 +81,7 @@ def load_state() -> dict:
     st["power"] = (st.get("power") or {}).get("frames", {})
     st["roads"] = (st.get("roads") or {}).get("frames", {})
     st["sewers"] = (st.get("sewers") or {}).get("frames", {})
+    st["ferries"] = (st.get("ferries") or {}).get("frames", {})
     st.setdefault("sea", {"obs": []})
     st["sea"].setdefault("fc", {"run": None, "frames": []})
     if st.get("hours", EVENT["hours"]) != EVENT["hours"]:
@@ -454,6 +456,20 @@ def update(workers: int = 24, log=print) -> dict:
         st["sewers"] = sewers
     except Exception as e:
         log(f"sewers: skipped ({e})")
+    try:   # ferry disruptions: WSF alerts (recorded with the roads), BC Ferries notices, news reports before recording
+        FY.record(now, log)
+        (OUT / "ferries").mkdir(parents=True, exist_ok=True)
+        (OUT / "ferries" / "routes.json").write_text(json.dumps(FY.routes(), separators=(",", ":")))
+        ferries = {}
+        for k, fr in FY.frames(EVENT["start"], EVENT["hours"]).items():
+            path = OUT / "ferries" / f"k{k:03d}.json"
+            text = json.dumps(fr, separators=(",", ":"))
+            if not path.exists() or path.read_text() != text:
+                path.write_text(text)
+            ferries[str(k)] = fr["counts"]
+        st["ferries"] = ferries
+    except Exception as e:
+        log(f"ferries: skipped ({e})")
     try:   # NOAA's flood outlines: the service holds only the current hour, so it is recorded (and archived) as it goes
         RV.fetch_inundation()
         # every archived hour inside the window that has no frame yet (this one, or ones from before a window change)
@@ -520,9 +536,10 @@ def update(workers: int = 24, log=print) -> dict:
         "power": {"frames": st.get("power", {}), "utilities": PW.UTILITIES},
         "roads": {"frames": st.get("roads", {}), "kinds": RD.KINDS},
         "sewers": {"frames": st.get("sewers", {}), "states": SW.STATES},
+        "ferries": {"frames": st.get("ferries", {}), "statuses": FY.STATUSES},
         "sea": {"obs": sorted(set(st["sea"]["obs"])), "fc": st["sea"]["fc"], "grid": OC.SEA.meta(),
                 "encoding": "R, G: current east, north m/s = (byte - 128) / 25; B: sea level m = byte / 25 - 3; A = 0: land"},
-        "credits": {**W.CREDITS, **OC.CREDITS, "nwm": RV.CREDITS, "fim": "Flood outlines: NOAA NWS experimental inundation extent from the NWM analysis (maps.water.noaa.gov), recorded hourly", "nws": "River gauges: NOAA National Weather Service (NWPS) observed stage, flood categories, impact statements and river forecasts (NWRFC)", "power": PW.CREDITS, "roads": RD.CREDITS, "sewers": SW.CREDITS, "ground": GR.CREDITS, "usgs": "Reservoir levels: USGS National Water Information System and USACE CWMS (operators' provisional data)"},
+        "credits": {**W.CREDITS, **OC.CREDITS, "nwm": RV.CREDITS, "fim": "Flood outlines: NOAA NWS experimental inundation extent from the NWM analysis (maps.water.noaa.gov), recorded hourly", "nws": "River gauges: NOAA National Weather Service (NWPS) observed stage, flood categories, impact statements and river forecasts (NWRFC)", "power": PW.CREDITS, "roads": RD.CREDITS, "sewers": SW.CREDITS, "ferries": FY.CREDITS, "ground": GR.CREDITS, "usgs": "Reservoir levels: USGS National Water Information System and USACE CWMS (operators' provisional data)"},
     }
     (OUT / "event.json").write_text(json.dumps(doc, separators=(",", ":")))
     log(f"observed rain through frame {max(map(int, doc['obs']['rain']), default=-1)}; "
