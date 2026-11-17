@@ -2,7 +2,9 @@
 
     Power       Snohomish County PUD (its live incidents tile set), Avista (Kubra: totals, by county and ZIP code),
                 Peninsula Light (summary, outages, outage outlines), EWEB (outage areas, customers restored)
-    Roads       King County road alerts (county roads; and Duvall, Tukwila, Sammamish and SeaTac's)
+    Roads       King County road alerts (county roads; and Duvall, Tukwila, Sammamish and SeaTac's); Oregon (TripCheck:
+                incidents, travel events such as closures and restrictions, road-weather stations; its key in
+                ~/.config/earthnote/odot.env as ODOT_KEY)
     Transit     service alerts (GTFS-realtime): King County Metro (with the Water Taxi), Community Transit, Kitsap
                 Transit; Amtrak trains in the region (Cascades, Coast Starlight, Empire Builder: positions, delays)
     Ferries     the Black Ball Coho (Port Angeles-Victoria), Pierce County (Anderson Island) and Skagit County
@@ -22,6 +24,8 @@ import re
 import urllib.request
 from datetime import datetime
 
+from pathlib import Path
+
 from .paths import ROOT
 
 ARCHIVE = ROOT / "data" / "archive" / "feeds"
@@ -32,6 +36,8 @@ KUBRA = "https://kubra.io"
 # amtrak (the trains on AMTRAK_ROUTES), arcgis (every feature of the layers, in lon/lat)
 EWEB = "https://services7.arcgis.com/6AM8yPAeyXiPc9eF/arcgis/rest/services"
 KC_ROADS = "https://gismaps.kingcounty.gov/arcgis/rest/services/RoadAlerts"
+TRIPCHECK = "https://api.odot.state.or.us/tripcheck"
+KEYS = Path.home() / ".config" / "earthnote"
 SOURCES = {
     "snopud": ("bytes", "https://outagestprodpub.blob.core.windows.net/pmtiles/incidents.pmtiles"),
     "avista": ("kubra", (("b9478e86-d9d9-45b2-9579-b2639f77f3fe", "00763684-dd19-4651-b33f-51aa17a491a6"),
@@ -42,6 +48,7 @@ SOURCES = {
     "penlight_polygons": ("json", "https://outages.penlightop.org/data/outagePolygons.json"),
     "eweb": ("arcgis", (f"{EWEB}/PublicOutageMap_Public_View/FeatureServer/0", f"{EWEB}/CustomersRestored_Public_View/FeatureServer/0")),
     "kc_road_alerts": ("arcgis", (f"{KC_ROADS}/KingCo_Road_Alerts/MapServer/2",) + tuple(f"{KC_ROADS}/nonKCRoadAlerts/MapServer/{i}" for i in range(8))),
+    "tripcheck": ("keyed", ("odot.env", "ODOT_KEY", "Ocp-Apim-Subscription-Key", [f"{TRIPCHECK}/{p}" for p in ("Incidents", "Tle/Events", "Rwis/Status")])),
     "kcm_alerts": ("bytes", "https://s3.amazonaws.com/kcm-alerts-realtime-prod/alerts.pb"),
     "ct_alerts": ("bytes", "https://s3.amazonaws.com/commtrans-realtime-prod/alerts.pb"),
     "kitsap_alerts": ("bytes", "https://kttracker.com/gtfsrt/alerts"),
@@ -54,9 +61,16 @@ SOURCES = {
 }
 
 
-def _get(url: str) -> bytes:
-    with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=60) as r:
+def _get(url: str, headers: dict | None = None) -> bytes:
+    with urllib.request.urlopen(urllib.request.Request(url, headers={**UA, **(headers or {})}), timeout=60) as r:
         return r.read()
+
+
+def _key(file: str, name: str) -> str | None:
+    path = KEYS / file
+    if not path.exists():
+        return None
+    return next((line.split("=", 1)[1].strip().strip("\"'") for line in path.read_text().splitlines() if line.startswith(f"{name}=")), None)
 
 
 def strip_page(html: str) -> str:
@@ -75,6 +89,12 @@ def fetch(kind: str, where):
         trains = json.loads(_get(where))
         return {num: [t for t in ts if t.get("routeName") in AMTRAK_ROUTES] for num, ts in trains.items()
                 if any(t.get("routeName") in AMTRAK_ROUTES for t in ts)}
+    if kind == "keyed":   # JSON behind a key sent as a header; skipped (an error) without the key file
+        file, name, header, urls = where
+        key = _key(file, name)
+        if not key:
+            raise FileNotFoundError(f"no {name} in {KEYS / file}")
+        return {url: json.loads(_get(url, {header: key})) for url in urls}
     if kind == "arcgis":
         q = "query?where=1%3D1&outFields=*&outSR=4326&f=json"
         return {url: json.loads(_get(f"{url}/{q}")) for url in where}
