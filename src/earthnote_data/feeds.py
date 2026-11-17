@@ -1,7 +1,8 @@
 """More feeds that keep no history, recorded raw each hour (not drawn on the map yet; the recordings keep them).
 
     Power       Snohomish County PUD (its live incidents tile set), Avista (Kubra: totals, by county and ZIP code),
-                Peninsula Light (summary, outages, outage outlines)
+                Peninsula Light (summary, outages, outage outlines), EWEB (outage areas, customers restored)
+    Roads       King County road alerts (county roads; and Duvall, Tukwila, Sammamish and SeaTac's)
     Transit     service alerts (GTFS-realtime): King County Metro (with the Water Taxi), Community Transit, Kitsap
                 Transit; Amtrak trains in the region (Cascades, Coast Starlight, Empire Builder: positions, delays)
     Ferries     the Black Ball Coho (Port Angeles-Victoria), Pierce County (Anderson Island) and Skagit County
@@ -28,7 +29,9 @@ UA = {"User-Agent": "Mozilla/5.0 (earthnote storm recorder)"}
 AMTRAK_ROUTES = {"Amtrak Cascades", "Coast Starlight", "Empire Builder"}
 KUBRA = "https://kubra.io"
 # name: (kind, where). kinds: json, bytes, page (HTML, scripts and styles removed), kubra ((instance, view), files),
-# amtrak (the trains on AMTRAK_ROUTES)
+# amtrak (the trains on AMTRAK_ROUTES), arcgis (every feature of the layers, in lon/lat)
+EWEB = "https://services7.arcgis.com/6AM8yPAeyXiPc9eF/arcgis/rest/services"
+KC_ROADS = "https://gismaps.kingcounty.gov/arcgis/rest/services/RoadAlerts"
 SOURCES = {
     "snopud": ("bytes", "https://outagestprodpub.blob.core.windows.net/pmtiles/incidents.pmtiles"),
     "avista": ("kubra", (("b9478e86-d9d9-45b2-9579-b2639f77f3fe", "00763684-dd19-4651-b33f-51aa17a491a6"),
@@ -37,6 +40,8 @@ SOURCES = {
     "penlight_summary": ("json", "https://outages.penlightop.org/data/outageSummary.json"),
     "penlight_outages": ("json", "https://outages.penlightop.org/data/outages.json"),
     "penlight_polygons": ("json", "https://outages.penlightop.org/data/outagePolygons.json"),
+    "eweb": ("arcgis", (f"{EWEB}/PublicOutageMap_Public_View/FeatureServer/0", f"{EWEB}/CustomersRestored_Public_View/FeatureServer/0")),
+    "kc_road_alerts": ("arcgis", (f"{KC_ROADS}/KingCo_Road_Alerts/MapServer/2",) + tuple(f"{KC_ROADS}/nonKCRoadAlerts/MapServer/{i}" for i in range(8))),
     "kcm_alerts": ("bytes", "https://s3.amazonaws.com/kcm-alerts-realtime-prod/alerts.pb"),
     "ct_alerts": ("bytes", "https://s3.amazonaws.com/commtrans-realtime-prod/alerts.pb"),
     "kitsap_alerts": ("bytes", "https://kttracker.com/gtfsrt/alerts"),
@@ -70,6 +75,9 @@ def fetch(kind: str, where):
         trains = json.loads(_get(where))
         return {num: [t for t in ts if t.get("routeName") in AMTRAK_ROUTES] for num, ts in trains.items()
                 if any(t.get("routeName") in AMTRAK_ROUTES for t in ts)}
+    if kind == "arcgis":
+        q = "query?where=1%3D1&outFields=*&outSR=4326&f=json"
+        return {url: json.loads(_get(f"{url}/{q}")) for url in where}
     if kind == "kubra":   # the current interval's files, from the storm center's current state
         (inst, view), files = where
         state = json.loads(_get(f"{KUBRA}/stormcenter/api/v1/stormcenters/{inst}/views/{view}/currentState?preview=false"))
