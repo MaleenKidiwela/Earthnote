@@ -53,6 +53,7 @@ COARSE = W.LatLonGrid(-140.0, -112.0, 37.0, 54.0, 0.25)  # ECMWF, at its native 
 GUST = W.LatLonGrid(REGION.WEST, REGION.EAST, REGION.SOUTH, REGION.NORTH, 0.03)   # gusts on land, the map's region
 OUT = BUNDLE.parent / "events" / EVENT["key"]
 R2_KEYFILE = Path.home() / ".config" / "earthnote" / "r2.env"
+S3_KEYFILE = Path.home() / ".config" / "earthnote" / "s3.env"   # the lab's bucket for the recordings
 
 
 def frame_of(valid: datetime) -> int:
@@ -560,6 +561,38 @@ def _r2_env() -> dict:
             "RCLONE_CONFIG_R2_NO_CHECK_BUCKET": "true", "R2_BUCKET": c["R2_BUCKET"]}
 
 
+def _keys(path: Path) -> dict:
+    if not path.exists():
+        raise SystemExit(f"No keys at {path}")
+    c = dict(line.split("=", 1) for line in path.read_text().splitlines() if "=" in line and not line.lstrip().startswith("#"))
+    return {k.strip(): v.strip().strip("\"'") for k, v in c.items()}
+
+
+def _s3_env() -> dict:
+    """rclone's settings for the recordings bucket (AWS S3), from ~/.config/earthnote/s3.env (S3_BUCKET, S3_PREFIX,
+    S3_REGION, AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY). The key may write and read, not delete."""
+    c = _keys(S3_KEYFILE)
+    return {**os.environ, "RCLONE_CONFIG_S3_TYPE": "s3", "RCLONE_CONFIG_S3_PROVIDER": "AWS", "RCLONE_CONFIG_S3_REGION": c["S3_REGION"],
+            "RCLONE_CONFIG_S3_ACCESS_KEY_ID": c["AWS_ACCESS_KEY_ID"], "RCLONE_CONFIG_S3_SECRET_ACCESS_KEY": c["AWS_SECRET_ACCESS_KEY"],
+            "RCLONE_CONFIG_S3_NO_CHECK_BUCKET": "true", "S3_DEST": f"s3:{c['S3_BUCKET']}/{c.get('S3_PREFIX', '')}".rstrip("/")}
+
+
+def _rclone(env: dict, *a) -> None:
+    rclone = shutil.which("rclone") or str(Path.home() / ".local" / "bin" / "rclone")
+    subprocess.run([rclone, *a, "-q", "--checksum", "--fast-list", "--transfers", "32", "--checkers", "32"], env=env, check=True)   # errors go to the log
+
+
+def backup_archive(log=print) -> None:
+    """Copy the recordings of the feeds that can't be fetched again (flood outlines, outages, roads, sewers, ferries,
+    gauges) to the lab's S3 bucket: new and changed files only, never deleting there (the bucket keeps old versions)."""
+    env = _s3_env()
+    try:
+        _rclone(env, "copy", f"{ROOT / 'data' / 'archive'}/", env["S3_DEST"])
+        log("recordings copied to S3")
+    except subprocess.CalledProcessError as e:
+        log(f"recordings copy to S3 failed (rclone exit {e.returncode})")
+
+
 def publish(log=print) -> None:
     """Mirror the event frames to the R2 bucket the site reads them from: only changed files are sent, frames first
     and event.json last (so a viewer never sees an hour whose frames are not there yet), then stale frames go."""
@@ -572,13 +605,7 @@ def publish(log=print) -> None:
     run("copyto", str(OUT / "event.json"), f"{dest}/event.json")
     stamp = json.loads((OUT / "event.json").read_text())["updated"]
     log(f"published storm data as of {stamp}")
-    # the raw responses of the feeds that can't be fetched again (outages, roads, sewers, flood outlines, gauges):
-    # a copy in the bucket's archive/ (public data; nothing links to it), never deleted there
-    try:
-        run("copy", f"{ROOT / 'data' / 'archive'}/", f"r2:{env['R2_BUCKET']}/archive")
-        log("archive backed up to R2")
-    except subprocess.CalledProcessError as e:
-        log(f"archive backup to R2 failed (rclone exit {e.returncode})")
+    backup_archive(log)
 
 
 def main(argv=None) -> None:
