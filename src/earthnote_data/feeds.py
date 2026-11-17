@@ -6,7 +6,7 @@
                 incidents, travel events such as closures and restrictions, road-weather stations; its key in
                 ~/.config/earthnote/odot.env as ODOT_KEY)
     Transit     service alerts (GTFS-realtime): King County Metro (with the Water Taxi), Community Transit, Kitsap
-                Transit; Amtrak trains in the region (Cascades, Coast Starlight, Empire Builder: positions, delays)
+                Transit, TransLink (its key in ~/.config/earthnote/translink.env as TRANSLINK_KEY); Amtrak trains in the region (Cascades, Coast Starlight, Empire Builder: positions, delays)
     Ferries     the Black Ball Coho (Port Angeles-Victoria), Pierce County (Anderson Island) and Skagit County
                 (Guemes Island) ferry pages
     Schools     FlashAlert closures and delays, Seattle and Portland regions
@@ -52,6 +52,7 @@ SOURCES = {
     "kcm_alerts": ("bytes", "https://s3.amazonaws.com/kcm-alerts-realtime-prod/alerts.pb"),
     "ct_alerts": ("bytes", "https://s3.amazonaws.com/commtrans-realtime-prod/alerts.pb"),
     "kitsap_alerts": ("bytes", "https://kttracker.com/gtfsrt/alerts"),
+    "translink_alerts": ("keyed_bytes", ("translink.env", "TRANSLINK_KEY", "apikey", "https://gtfsapi.translink.ca/v3/gtfsalerts")),
     "amtrak": ("amtrak", "https://api-v3.amtraker.com/v3/trains"),
     "coho": ("page", "https://www.cohoferry.com/"),
     "pierce_ferry": ("page", "https://www.piercecountywa.gov/1793/Ferry"),
@@ -95,6 +96,12 @@ def fetch(kind: str, where):
         if not key:
             raise FileNotFoundError(f"no {name} in {KEYS / file}")
         return {url: json.loads(_get(url, {header: key})) for url in urls}
+    if kind == "keyed_bytes":   # binary behind a key sent in the query string
+        file, name, param, url = where
+        key = _key(file, name)
+        if not key:
+            raise FileNotFoundError(f"no {name} in {KEYS / file}")
+        return {"b64": base64.b64encode(_get(f"{url}?{param}={key}")).decode()}
     if kind == "arcgis":
         q = "query?where=1%3D1&outFields=*&outSR=4326&f=json"
         return {url: json.loads(_get(f"{url}/{q}")) for url in where}
