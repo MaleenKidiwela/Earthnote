@@ -73,14 +73,20 @@ def snotel(start: datetime, hours: int, now: datetime, log=print) -> list[dict]:
     # station times are local standard time; ask a day either side and cut to the window afterwards
     begin, end = (start - timedelta(days=1)).strftime("%Y-%m-%d %H:%M"), (now + timedelta(days=1)).strftime("%Y-%m-%d %H:%M")
 
+    failed = []
+
     def batch(ts: list[str]):
         q = urllib.parse.urlencode({"stationTriplets": ",".join(ts), "elements": ",".join(SNOTEL_ELEMENTS), "duration": "HOURLY",
                                     "beginDate": begin, "endDate": end})
-        return _json(f"{AWDB}/data?{q}", timeout=300) or []
+        try:   # AWDB answers 502 for minutes at a time: a batch that still fails is left out, not the whole layer
+            return _json(f"{AWDB}/data?{q}", timeout=300) or []
+        except Exception:
+            failed.append(len(ts))
+            return []
 
     keys, out = sorted(stations), []
-    with cf.ThreadPoolExecutor(8) as ex:
-        for res in ex.map(batch, [keys[i:i + 25] for i in range(0, len(keys), 25)]):
+    with cf.ThreadPoolExecutor(4) as ex:   # small batches, a few at a time: big ones time out at AWDB's gateway
+        for res in ex.map(batch, [keys[i:i + 10] for i in range(0, len(keys), 10)]):
             for s in res:
                 m = stations[s["stationTriplet"]]
                 tz = timezone(timedelta(hours=m.get("dataTimeZone") or -8))
@@ -96,6 +102,8 @@ def snotel(start: datetime, hours: int, now: datetime, log=print) -> list[dict]:
                         site[key] = _round(_hourly(series, start, hours, now), 1)
                 if any(any(v is not None for v in site.get(k, [])) for k in SNOTEL_ELEMENTS.values()):
                     out.append(site)
+    if failed:
+        log(f"ground: SNOTEL left out {sum(failed)} of {len(keys)} stations (AWDB errors)")
     return out
 
 
