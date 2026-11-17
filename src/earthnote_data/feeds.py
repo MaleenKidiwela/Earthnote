@@ -21,6 +21,7 @@ import concurrent.futures as cf
 import gzip
 import json
 import re
+import urllib.error
 import urllib.request
 from datetime import datetime
 
@@ -110,7 +111,15 @@ def fetch(kind: str, where):
         (inst, view), files = where
         state = json.loads(_get(f"{KUBRA}/stormcenter/api/v1/stormcenters/{inst}/views/{view}/currentState?preview=false"))
         base = f"{KUBRA}/{state['data']['interval_generation_data']}"
-        return {"state": state, "files": {f: json.loads(_get(f"{base}/{f}")) for f in files}}
+        got, missing = {}, []
+        for f in files:   # some intervals have no thematic (by county, by ZIP) files: those are listed as missing
+            try:
+                got[f] = json.loads(_get(f"{base}/{f}"))
+            except urllib.error.HTTPError as e:
+                if e.code != 404:
+                    raise
+                missing.append(f)
+        return {"state": state, "files": got, "missing": missing}
     raise ValueError(kind)
 
 

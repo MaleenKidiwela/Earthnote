@@ -207,9 +207,16 @@ def update(out_dir, start: datetime, hours: int, now: datetime, log=print, k0: i
     """Write ground/snow.json and ground/wells.json for the window (`k0`: the event frame its first hour is)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-    snow = snotel(start, hours, now, log) + bc_snow(start, hours, now)
+
+    def part(fn, *a):   # a source that fails is left out (and named), not the whole layer
+        try:
+            return fn(start, hours, now, *a)
+        except Exception as e:
+            log(f"ground: {fn.__name__} left out ({e})")
+            return []
+    snow = part(snotel, log) + part(bc_snow)
     (out_dir / "snow.json").write_text(json.dumps({"updated": stamp, "k0": k0, "sites": snow}, separators=(",", ":")))
-    wells = usgs_wells(start, hours, now) + bc_wells(start, hours, now)
+    wells = part(usgs_wells) + part(bc_wells)
     (out_dir / "wells.json").write_text(json.dumps({"updated": stamp, "k0": k0, "sites": wells}, separators=(",", ":")))
     soil = sum(1 for s in snow if "sm2" in s)
     log(f"ground: {len(snow)} snow stations ({soil} with soil moisture), {len(wells)} groundwater wells")
