@@ -5,8 +5,8 @@
     Roads       King County road alerts (county roads; and Duvall, Tukwila, Sammamish and SeaTac's); Oregon (TripCheck:
                 incidents, travel events such as closures and restrictions, road-weather stations; its key in
                 ~/.config/earthnote/odot.env as ODOT_KEY)
-    Transit     service alerts (GTFS-realtime): King County Metro (with the Water Taxi), Community Transit, Kitsap
-                Transit, TransLink (its key in ~/.config/earthnote/translink.env as TRANSLINK_KEY); Amtrak trains in the region (Cascades, Coast Starlight, Empire Builder: positions, delays)
+    Transit     service alerts (GTFS-realtime): King County Metro (with the Water Taxi), Sound Transit (Link,
+                Sounder, ST Express), Community Transit, Kitsap Transit, TransLink (its key in ~/.config/earthnote/translink.env as TRANSLINK_KEY); Amtrak trains in the region (Cascades, Coast Starlight, Empire Builder: positions, delays)
     Ferries     the Black Ball Coho (Port Angeles-Victoria), Pierce County (Anderson Island) and Skagit County
                 (Guemes Island) ferry pages
     Schools     FlashAlert closures and delays, Seattle and Portland regions
@@ -50,6 +50,7 @@ SOURCES = {
     "kc_road_alerts": ("arcgis", (f"{KC_ROADS}/KingCo_Road_Alerts/MapServer/2",) + tuple(f"{KC_ROADS}/nonKCRoadAlerts/MapServer/{i}" for i in range(8))),
     "tripcheck": ("keyed", ("odot.env", "ODOT_KEY", "Ocp-Apim-Subscription-Key", [f"{TRIPCHECK}/{p}" for p in ("Incidents", "Tle/Events", "Rwis/Status")])),
     "kcm_alerts": ("bytes", "https://s3.amazonaws.com/kcm-alerts-realtime-prod/alerts.pb"),
+    "st_alerts": ("bytes", "https://s3.amazonaws.com/st-service-alerts-prod/alerts.pb"),
     "ct_alerts": ("bytes", "https://s3.amazonaws.com/commtrans-realtime-prod/alerts.pb"),
     "kitsap_alerts": ("bytes", "https://kttracker.com/gtfsrt/alerts"),
     "translink_alerts": ("keyed_bytes", ("translink.env", "TRANSLINK_KEY", "apikey", "https://gtfsapi.translink.ca/v3/gtfsalerts")),
