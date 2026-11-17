@@ -40,13 +40,14 @@ export class GaugeMarkers {
     Object.assign(this, { root, scene });
     this.el = document.createElement("div"); this.el.className = "place-layer res-layer"; root.appendChild(this.el);
     this.tip = document.createElement("div"); this.tip.className = "res-tip gauge-tip"; this.el.appendChild(this.tip);
-    this.items = []; this.k = 0; this.whatIf = true; this.visible = true; this._n = 0; this.counts = {};
+    this.items = []; this.k = 0; this.k0 = 0; this.kAbs = 0; this.whatIf = true; this.visible = true; this._n = 0; this.counts = {};
   }
 
   async load(doc) {
     const res = await fetch(`${doc.base}rivers/gauges.json?u=${encodeURIComponent(doc.updated)}`);
     if (!res.ok) return;
-    const { sites } = await res.json();
+    const { sites, k0 = 0 } = await res.json();
+    this.k0 = k0;   // the event frame each series starts at (a rolling view keeps only its last days)
     for (const it of this.items) it.node.remove();
     const P = this.scene.P;
     this.items = sites.map((s, i) => {
@@ -59,10 +60,12 @@ export class GaugeMarkers {
       this.el.appendChild(node);
       return it;
     });
-    this.setHour(this.k, this.whatIf);
+    this.setHour(this.kAbs, this.whatIf);
   }
 
+  // k: the event's frame; this.k: the index into the series
   setHour(k, whatIf = this.whatIf) {
+    this.kAbs = k; k -= this.k0 ?? 0;
     this.k = k; this.whatIf = whatIf; this.counts = { action: 0, minor: 0, moderate: 0, major: 0 };
     for (const it of this.items) {
       const v = (it.value = stageAt(it, k, whatIf)), c = (it.cat = v ? categoryOf(it, v.stage) : null);

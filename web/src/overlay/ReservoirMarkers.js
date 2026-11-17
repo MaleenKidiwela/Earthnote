@@ -34,13 +34,14 @@ export class ReservoirMarkers {
     Object.assign(this, { root, scene, file: this.constructor.file, kind: this.constructor.kind });
     this.el = document.createElement("div"); this.el.className = `place-layer res-layer ${this.kind}`; root.appendChild(this.el);
     this.tip = document.createElement("div"); this.tip.className = "res-tip"; this.el.appendChild(this.tip);
-    this.items = []; this.k = 0; this.visible = true; this._n = 0;
+    this.items = []; this.k = 0; this.k0 = 0; this.kAbs = 0; this.visible = true; this._n = 0;
   }
 
   async load(doc) {
     const res = await fetch(`${doc.base}${this.file}?u=${encodeURIComponent(doc.updated)}`);
     if (!res.ok) return;
-    const { sites } = await res.json();
+    const { sites, k0 = 0 } = await res.json();
+    this.k0 = k0;   // the event frame each series starts at (a rolling view keeps only its last days)
     for (const it of this.items) it.node.remove();
     const P = this.scene.P;
     this.items = sites.filter(s => this.keep(s)).map((s, i) => {
@@ -53,10 +54,12 @@ export class ReservoirMarkers {
       node.querySelector(".n").textContent = it.short;
       return it;
     });
-    this.setHour(this.k);
+    this.setHour(this.kAbs);
   }
 
+  // k: the event's frame; this.k: the index into the series
   setHour(k) {
+    this.kAbs = k; k -= this.k0 ?? 0;
     this.k = k;
     for (const it of this.items) {
       const l = (it.now = levelAt(it, k, it.key ?? "elev")), step = this.step(it);

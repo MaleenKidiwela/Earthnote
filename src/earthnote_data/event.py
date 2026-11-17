@@ -1,7 +1,13 @@
-"""The storm layer: hourly rain, wind and temperature for one event window, observed and forecast, as web frames.
+"""The storm layer: hourly rain, wind and temperature for one of the site's views, observed and forecast, as web frames.
 
     PYTHONPATH=src .venv/bin/python -m earthnote_data.event              # fetch what is new, rewrite event.json
     PYTHONPATH=src .venv/bin/python -m earthnote_data.event --publish    # ... then send the frames to the R2 bucket
+    EARTHNOTE_EVENT=continuum ...                                        # the rolling view (default: nov2026_ar)
+
+Views (EVENTS): the Fall 2026 atmospheric-river event (Nov 7-16, kept whole, frozen once its late data is in) and the
+Continuum (the last 7 days and 3 days ahead, rolling; older hours are deleted). The hourly cron runs the Continuum
+first, which takes the snapshot of the feeds that keep no history (outages, roads, sewers, ferries, flood outlines);
+the event reads those recordings (--no-record). The recordings go to the lab's S3 bucket; the frames to R2.
 
 Frame k is the hour ending at start + (k + 1) h. Observed: MRMS rain (Pass 2 replaces Pass 1 when it appears) and
 HRRR analysis wind and temperature. Forecast: every 6-hourly HRRR (48 h, hourly) and ECMWF IFS run (3-hourly,
@@ -22,6 +28,7 @@ import subprocess
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import numpy as np
 from PIL import Image
@@ -37,15 +44,37 @@ from . import sewers as SW
 from . import weather as W
 from .paths import BUNDLE, ROOT
 
-EVENT = {
-    "key": "nov2026_ar",
-    "title": "November 2026 atmospheric rivers",
-    "start": datetime(2026, 11, 7, 8, tzinfo=W.UTC),   # Sat Nov 7 00:00 PST
-    "hours": 240,                                      # to Mon Nov 16 24:00 PST
-    "tz": "America/Los_Angeles",
-}
-RUNS_FROM = datetime(2026, 11, 6, 0, tzinfo=W.UTC)    # forecasts issued from a day before the window
 RUN_EVERY = 6                                          # hours: 00, 06, 12, 18 UTC
+PT = ZoneInfo("America/Los_Angeles")
+# The site's views. A fixed event keeps every hour and every forecast run. A rolling view ("back"/"ahead") numbers its
+# hours from a fixed start too (so a frame's name never changes), but keeps only the last `back` hours, the forecast
+# to the first midnight (PT) at least `ahead` hours out, and the last day of forecast runs; older ones are deleted.
+EVENTS = {
+    "nov2026_ar": {"key": "nov2026_ar", "title": "Atmospheric River event · Fall 2026",
+                   "start": datetime(2026, 11, 7, 8, tzinfo=W.UTC),     # Sat Nov 7 00:00 PST
+                   "hours": 240,                                        # to Mon Nov 16 24:00 PST
+                   "runs_from": datetime(2026, 11, 6, 0, tzinfo=W.UTC), # forecasts issued from a day before the window
+                   "until": datetime(2026, 11, 18, 20, tzinfo=W.UTC)},  # late data in by then; frozen after
+    "continuum": {"key": "continuum", "title": "Continuum",
+                  "start": datetime(2026, 11, 1, 8, tzinfo=W.UTC), "back": 7 * 24, "ahead": 72},
+}
+
+
+def _window(ev: dict, now: datetime) -> dict:
+    """The event with its `hours`, `first` kept hour and `runs_from` for now (fixed events: as given)."""
+    ev = {"tz": "America/Los_Angeles", "first": 0, **ev}
+    if "back" in ev:
+        end = (now + timedelta(hours=ev["ahead"])).astimezone(PT).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        ev["hours"] = round((end - ev["start"]).total_seconds() / 3600)
+        ev["first"] = max(0, int((now - ev["start"]).total_seconds() // 3600) - ev["back"])
+        day = now - timedelta(hours=24)
+        ev["runs_from"] = day.replace(hour=day.hour - day.hour % RUN_EVERY, minute=0, second=0, microsecond=0)
+    return ev
+
+
+EVENT = _window(EVENTS[os.environ.get("EARTHNOTE_EVENT", "nov2026_ar")], datetime.now(W.UTC))
+FIRST = EVENT["first"]
+WINDOW_START = EVENT["start"] + timedelta(hours=FIRST)   # the kept hours: [FIRST, hours), i.e. from here
 HRRR_HOURS = 48
 RAIN = W.LatLonGrid(-140.0, -112.0, 37.0, 54.0, 0.025)   # MRMS and HRRR rain, ~2.5 km
 MET = W.LatLonGrid(-140.0, -112.0, 37.0, 54.0, 0.1)      # HRRR wind and temperature
@@ -165,7 +194,7 @@ def ecmwf_run(init_s: str) -> tuple[str, list[int], bool] | None:
     interpolated linearly between steps. None until the run's steps reach the window's end or 144 h."""
     init = datetime.strptime(init_s, "%Y%m%d%H").replace(tzinfo=W.UTC)
     steps = [s for s in W.ecmwf_steps(init) if s <= 144]
-    need = min(144, int((end() - init).total_seconds() // 3600))
+    need = min(144 if init.hour in (0, 12) else 90, int((end() - init).total_seconds() // 3600))   # 06/18z runs stop at 90 h
     if not steps or steps[-1] < need:
         return None
     base = OUT / "fc" / "ecmwf" / init_s
@@ -351,27 +380,54 @@ SEA_AHEAD = 6   # hours past now that the sea what-if reaches
 # ---------------------------------------------------------------- the update
 
 def run_inits(now: datetime) -> list[str]:
-    out, t = [], RUNS_FROM
+    out, t = [], EVENT["runs_from"]
     while t < min(now, end()):
         out.append(t.strftime("%Y%m%d%H"))
         t += timedelta(hours=RUN_EVERY)
     return out
 
 
-def update(workers: int = 24, log=print) -> dict:
+def prune(st: dict, now: datetime, log=print) -> None:
+    """A rolling view: delete the hours before FIRST and the forecast runs older than a day, from the frames and the
+    state (the recordings and the public archives still hold them)."""
+    gone = 0
+    for d in ("obs/rain", "obs/met", "obs/gust", "rivers/obs", "rivers/inundation", "sea/obs", "power", "roads", "sewers", "ferries"):
+        for p in (OUT / d).glob("k*.*"):
+            if int(p.stem[1:]) < FIRST:
+                p.unlink(); gone += 1
+    keep = lambda k: int(k) >= FIRST
+    st["obs"]["rain"] = {k: v for k, v in st["obs"]["rain"].items() if keep(k)}
+    for key in ("met", "gust"):
+        st["obs"][key] = [k for k in st["obs"][key] if keep(k)]
+    st["rivers"]["obs"] = [k for k in st["rivers"]["obs"] if keep(k)]
+    st["rivers"]["inundation"] = {k: v for k, v in st["rivers"]["inundation"].items() if keep(k)}
+    st["sea"]["obs"] = [k for k in st["sea"]["obs"] if keep(k)]
+    for key in ("power", "roads", "sewers", "ferries"):
+        st[key] = {k: v for k, v in st.get(key, {}).items() if keep(k)}
+    runs = set(run_inits(now))
+    for m in ("hrrr", "ecmwf"):
+        for init in [i for i in st["runs"][m] if i not in runs]:
+            del st["runs"][m][init]
+            shutil.rmtree(OUT / "fc" / m / init, ignore_errors=True); gone += 1
+    log(f"rolling window: from frame {FIRST} ({WINDOW_START:%b %d %H}Z); {gone} old frames and runs removed")
+
+
+def update(workers: int = 24, log=print, record: bool = True) -> dict:
+    """Fetch what is new for the event and rewrite event.json. `record`: also take this hour's snapshot of the feeds
+    that keep no history (one view records; the others read the recordings)."""
     now = datetime.now(W.UTC)
     st = load_state()
     OUT.mkdir(parents=True, exist_ok=True)
-    pending_rain = [k for k in range(EVENT["hours"]) if valid_of(k) <= now and st["obs"]["rain"].get(str(k)) != "pass2"]
-    pending_met = [k for k in range(EVENT["hours"]) if valid_of(k) <= now and k not in st["obs"]["met"]]
-    pending_gust = [k for k in range(EVENT["hours"]) if valid_of(k) <= now and k not in st["obs"]["gust"]]
+    pending_rain = [k for k in range(FIRST, EVENT["hours"]) if valid_of(k) <= now and st["obs"]["rain"].get(str(k)) != "pass2"]
+    pending_met = [k for k in range(FIRST, EVENT["hours"]) if valid_of(k) <= now and k not in st["obs"]["met"]]
+    pending_gust = [k for k in range(FIRST, EVENT["hours"]) if valid_of(k) <= now and k not in st["obs"]["gust"]]
     log(f"observed: {len(pending_rain)} rain hours and {len(pending_met)} wind/temperature hours to fetch")
     # one HRRR message first, so the grid maps are cached before the worker processes need them
     sample = W.hrrr_fields(datetime(2026, 11, 9, 0, tzinfo=W.UTC), 0, rain=False)
     _hrrr_maps(sample["t"])
     river_reaches(log)
-    pending_sea = [k for k in range(EVENT["hours"]) if valid_of(k) <= now and k not in st["sea"]["obs"]]
-    pending_river = [k for k in range(EVENT["hours"]) if valid_of(k) <= now and k not in st["rivers"]["obs"]]
+    pending_sea = [k for k in range(FIRST, EVENT["hours"]) if valid_of(k) <= now and k not in st["sea"]["obs"]]
+    pending_river = [k for k in range(FIRST, EVENT["hours"]) if valid_of(k) <= now and k not in st["rivers"]["obs"]]
     with cf.ProcessPoolExecutor(workers) as pool:
         for k in pool.map(river_obs, pending_river):
             if k is not None:
@@ -396,32 +452,34 @@ def update(workers: int = 24, log=print) -> dict:
             st["sea"]["fc"] = {"run": run_s, "frames": sorted(got)}
             log(f"sea: what-if from the {run_s} run for {len(got)} hours")
     try:   # tide gauges: observed, predicted, flood levels
-        tg = OC.tides(REGION, EVENT["start"], EVENT["hours"], now)
+        tg = OC.tides(REGION, WINDOW_START, EVENT["hours"] - FIRST, now)
         (OUT / "sea").mkdir(parents=True, exist_ok=True)
-        (OUT / "sea" / "tides.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "sites": tg}, separators=(",", ":")))
+        (OUT / "sea" / "tides.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "k0": FIRST, "sites": tg}, separators=(",", ":")))
         log(f"tides: {len(tg)} NOAA tide gauges")
     except Exception as e:
         log(f"tides: skipped ({e})")
     try:   # reservoir levels: rewritten whole each hour (USGS revises recent readings)
-        res = RV.all_reservoirs(EVENT["start"], EVENT["hours"], now, log)
-        (RIVERS / "reservoirs.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "sites": res}, separators=(",", ":")))
+        res = RV.all_reservoirs(WINDOW_START, EVENT["hours"] - FIRST, now, log)
+        (RIVERS / "reservoirs.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "k0": FIRST, "sites": res}, separators=(",", ":")))
         log(f"reservoirs: {len(res)} lakes and reservoirs")
     except Exception as e:   # a USGS outage must not stop the rest of the update
         log(f"reservoirs: skipped ({e})")
     try:   # NWS river gauges: measured stage, and the official forecast for hours ahead
-        gs = RV.gauges(EVENT["start"], EVENT["hours"], now, log)
-        (RIVERS / "gauges.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "sites": gs}, separators=(",", ":")))
+        gs = RV.gauges(WINDOW_START, EVENT["hours"] - FIRST, now, log, archive=record)
+        (RIVERS / "gauges.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "k0": FIRST, "sites": gs}, separators=(",", ":")))
         log(f"gauges: {len(gs)} NWS river gauges")
     except Exception as e:
         log(f"gauges: skipped ({e})")
     try:   # snow, soil moisture and groundwater at stations: their records are kept, so the window is sampled again
-        GR.update(OUT / "ground", EVENT["start"], EVENT["hours"], now, log)
+        GR.update(OUT / "ground", WINDOW_START, EVENT["hours"] - FIRST, now, log, k0=FIRST)
     except Exception as e:
         log(f"ground: skipped ({e})")
     try:   # power outages: the utilities' maps hold only what is out now, so each hour's snapshot is recorded
-        PW.record(now, log)
+        if record:
+            PW.record(now, log)
         power = {}
-        for k, fr in PW.frames(EVENT["start"], EVENT["hours"], (RAIN.west, RAIN.east, RAIN.south, RAIN.north)).items():
+        for k, fr in PW.frames(WINDOW_START, EVENT["hours"] - FIRST, (RAIN.west, RAIN.east, RAIN.south, RAIN.north)).items():
+            k += FIRST
             path = OUT / "power" / f"k{k:03d}.json"
             text = json.dumps(fr, separators=(",", ":"))
             if not path.exists() or path.read_text() != text:   # unchanged hours stay as they are on the site
@@ -432,9 +490,11 @@ def update(workers: int = 24, log=print) -> dict:
     except Exception as e:
         log(f"power: skipped ({e})")
     try:   # roads, passes and ferries: like the outage maps, the feeds hold only what is in effect now
-        RD.record(now, log)
+        if record:
+            RD.record(now, log)
         roads = {}
-        for k, fr in RD.frames(EVENT["start"], EVENT["hours"], (RAIN.west, RAIN.east, RAIN.south, RAIN.north)).items():
+        for k, fr in RD.frames(WINDOW_START, EVENT["hours"] - FIRST, (RAIN.west, RAIN.east, RAIN.south, RAIN.north)).items():
+            k += FIRST
             path = OUT / "roads" / f"k{k:03d}.json"
             text = json.dumps(fr, separators=(",", ":"))
             if not path.exists() or path.read_text() != text:
@@ -445,9 +505,11 @@ def update(workers: int = 24, log=print) -> dict:
     except Exception as e:
         log(f"roads: skipped ({e})")
     try:   # sewer overflows: the status maps hold only the present (King County's without times)
-        SW.record(now, log)
+        if record:
+            SW.record(now, log)
         sewers = {}
-        for k, fr in SW.frames(EVENT["start"], EVENT["hours"]).items():
+        for k, fr in SW.frames(WINDOW_START, EVENT["hours"] - FIRST).items():
+            k += FIRST
             path = OUT / "sewers" / f"k{k:03d}.json"
             text = json.dumps(fr, separators=(",", ":"))
             if not path.exists() or path.read_text() != text:
@@ -458,11 +520,13 @@ def update(workers: int = 24, log=print) -> dict:
     except Exception as e:
         log(f"sewers: skipped ({e})")
     try:   # ferry disruptions: WSF alerts (recorded with the roads), BC Ferries notices, news reports before recording
-        FY.record(now, log)
+        if record:
+            FY.record(now, log)
         (OUT / "ferries").mkdir(parents=True, exist_ok=True)
         (OUT / "ferries" / "routes.json").write_text(json.dumps(FY.routes(), separators=(",", ":")))
         ferries = {}
-        for k, fr in FY.frames(EVENT["start"], EVENT["hours"]).items():
+        for k, fr in FY.frames(WINDOW_START, EVENT["hours"] - FIRST).items():
+            k += FIRST
             path = OUT / "ferries" / f"k{k:03d}.json"
             text = json.dumps(fr, separators=(",", ":"))
             if not path.exists() or path.read_text() != text:
@@ -472,13 +536,17 @@ def update(workers: int = 24, log=print) -> dict:
     except Exception as e:
         log(f"ferries: skipped ({e})")
     try:   # NOAA's flood outlines: the service holds only the current hour, so it is recorded (and archived) as it goes
-        RV.fetch_inundation()
+        if record:
+            RV.fetch_inundation()
+        # "storm-driven" against the flows at the window's start (a rolling view: at the start of that day, so the
+        # baseline changes once a day)
+        base = EVENT["start"] if not FIRST else WINDOW_START.replace(hour=0)
         # every archived hour inside the window that has no frame yet (this one, or ones from before a window change)
-        for k in range(EVENT["hours"]):
+        for k in range(FIRST, EVENT["hours"]):
             if str(k) in st["rivers"]["inundation"]:
                 continue
             fs = RV.archived_inundation(valid_of(k))
-            snap = fs and RV.inundation(EVENT["start"], fs, log)
+            snap = fs and RV.inundation(base, fs, log)
             if snap:
                 path = RIVERS / "inundation" / f"k{k:03d}.json"
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -517,8 +585,11 @@ def update(workers: int = 24, log=print) -> dict:
             log(f"gusts: skipped ({e})")
     st["obs"]["met"] = sorted(set(st["obs"]["met"]))
     st["obs"]["gust"] = sorted(set(st["obs"]["gust"]))
+    if "back" in EVENT:
+        prune(st, now, log)
     doc = {
-        "key": EVENT["key"], "title": EVENT["title"], "start": EVENT["start"].isoformat(), "hours": EVENT["hours"],
+        "key": EVENT["key"], "title": EVENT["title"], "start": EVENT["start"].isoformat(), "hours": EVENT["hours"], "first": FIRST,
+        **({"rolling": {"back": EVENT["back"], "ahead": EVENT["ahead"]}} if "back" in EVENT else {}),
         # frame k's meaning depends on the window; the web app puts this in every frame URL, so a change of window
         # can never be served from frames cached under the old numbering
         "version": f"{EVENT['start']:%Y%m%d%H}-{EVENT['hours']}",
@@ -593,7 +664,7 @@ def backup_archive(log=print) -> None:
         log(f"recordings copy to S3 failed (rclone exit {e.returncode})")
 
 
-def publish(log=print) -> None:
+def publish(log=print, backup: bool = True) -> None:
     """Mirror the event frames to the R2 bucket the site reads them from: only changed files are sent, frames first
     and event.json last (so a viewer never sees an hour whose frames are not there yet), then stale frames go."""
     env = _r2_env()
@@ -605,23 +676,27 @@ def publish(log=print) -> None:
     run("copyto", str(OUT / "event.json"), f"{dest}/event.json")
     stamp = json.loads((OUT / "event.json").read_text())["updated"]
     log(f"published storm data as of {stamp}")
-    backup_archive(log)
+    if backup:
+        backup_archive(log)
 
 
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--publish", action="store_true", help="send the frames to the R2 bucket the site reads them from afterwards")
     ap.add_argument("--workers", type=int, default=24)
+    ap.add_argument("--no-record", action="store_true", help="read the feeds' recordings but take no new snapshot (another view records)")
     args = ap.parse_args(argv)
-    lock = open(ROOT / "data" / ".event.lock", "w")
+    if EVENT.get("until") and datetime.now(W.UTC) > EVENT["until"]:
+        print(f"{EVENT['key']} is finished (frozen since {EVENT['until']:%b %d %H}Z); nothing to do"); return
+    lock = open(ROOT / "data" / f".event.{EVENT['key']}.lock", "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         print("another update is running; skipping"); return
     t0 = time.time()
-    update(args.workers)
+    update(args.workers, record=not args.no_record)
     if args.publish:
-        publish()
+        publish(backup=not args.no_record)
     print(f"done in {time.time() - t0:.0f} s")
 
 

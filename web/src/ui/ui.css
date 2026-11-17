@@ -122,3 +122,4 @@ input[type=range]:disabled { opacity: 0.35; }
 .river-tip tr.hit td { color: var(--text-primary); }
 @media (max-width: 1240px) and (min-width: 701px) { .storm { left: calc(var(--left-inset) + 336px); transform: none; width: auto; right: 300px; } }
 @media (max-width: 700px) { .storm { top: 112px; left: 8px; right: 8px; width: auto; transform: none; max-height: calc(100dvh - 120px); } .st-src { display: none; } }
+.st-views { display: flex; margin-bottom: 8px; } .st-views button { flex: 1; }

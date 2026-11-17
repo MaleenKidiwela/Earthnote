@@ -103,12 +103,13 @@ export function gustSummary(data, n) {
   return { mph: Math.round(max / 0.44704), share: over.map(c => (land ? c / land : 0)) };
 }
 
-export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gauges, floods, sea, gusts, power, roads, sewers, ferries }) {
+export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gauges, floods, sea, gusts, power, roads, sewers, ferries, views, view, onView }) {
   // decoded frames survive a refreshed event.json unless the window (and so the frame numbering) changed
   const cache = useMemo(() => new FrameCache(), [doc.version]);
   const series = useMemo(() => new RainSeries(doc, cache), [doc, cache]);
-  const [k, setK] = useState(Math.max(0, doc.lastObs));
-  useEffect(() => { setK(x => Math.min(x, doc.hours - 1)); }, [doc.hours]);
+  const k0 = doc.first;   // the first hour kept (0 for an event; a rolling view keeps only its last days)
+  const [k, setK] = useState(Math.max(k0, doc.lastObs));
+  useEffect(() => { setK(x => Math.max(doc.first, Math.min(x, doc.hours - 1))); }, [doc.hours, doc.first]);
   const [sel, setSel] = useState({ mode: "blend", model: "hrrr" });
   const [fill, setFill] = useState("rate"), [wind, setWind] = useState(false), [playing, setPlaying] = useState(false);
   const [open, setOpen] = useState(false), [opacity, setOpacity] = useState(0.85), [alt, setAlt] = useState(6);
@@ -305,30 +306,36 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
   const keys = useRef(null);
   keys.current = e => {
     if (e.metaKey || e.ctrlKey || e.altKey || isTypingTarget(e.target)) return;
-    if (e.key === ",") setK(x => Math.max(0, x - 1));
+    if (e.key === ",") setK(x => Math.max(k0, x - 1));
     if (e.key === ".") setK(x => Math.min(doc.hours - 1, x + 1));
     if (e.key === " ") { e.preventDefault(); setPlaying(p => !p); }
   };
   useEffect(() => { const h = e => keys.current(e); addEventListener("keydown", h); return () => removeEventListener("keydown", h); }, []);
 
   const runs = doc.runList[sel.model] ?? [];
-  const t = frameTime(doc, k), obsPct = ((doc.lastObs + 1) / doc.hours) * 100;
-  const days = Array.from({ length: Math.ceil(doc.hours / 24) }, (_, d) => d);
+  const span = doc.hours - k0, t = frameTime(doc, k), obsPct = ((doc.lastObs + 1 - k0) / span) * 100;
+  const nDays = Math.ceil(span / 24), every = nDays > 12 ? 2 : 1;   // a longer window labels every other day
+  const days = Array.from({ length: Math.ceil(nDays / every) }, (_, d) => d * every);
   return (
     <section className={`panel storm${open ? " open" : ""}`} aria-label="Storm layer">
+      {views?.length > 1 && (
+        <div className="st-views seg" role="group" aria-label="View">
+          {views.map(v => <button key={v.key} aria-pressed={v.key === view} title={v.hint} onClick={() => onView(v.key)}>{v.label}</button>)}
+        </div>
+      )}
       <div className="st-bar">
         <button className="st-play" aria-label={playing ? "Pause" : "Play"} title="Play / pause (space)" onClick={() => setPlaying(p => !p)}>{playing ? "❚❚" : "▶"}</button>
         <div className="st-when">
           <b>{pacific(t)}</b>
-          <span className="mono">{utc(t)} · hour {k + 1}/{doc.hours}</span>
+          <span className="mono">{utc(t)} · hour {k - k0 + 1}/{span}</span>
         </div>
         <span className={`st-src${status.startsWith("observed") ? " obs" : status.startsWith("forecast") ? " fc" : ""}`}>{busy ? "loading…" : status}</span>
         <button className="st-more" aria-expanded={open} aria-label="Storm layer options" onClick={() => setOpen(o => !o)}>{open ? "▾" : "▸"}</button>
       </div>
       <div className="st-slider">
-        <input type="range" min="0" max={doc.hours - 1} value={k} aria-label="Hour" onChange={e => { setPlaying(false); setK(+e.target.value); }}
+        <input type="range" min={k0} max={doc.hours - 1} value={k} aria-label="Hour" onChange={e => { setPlaying(false); setK(+e.target.value); }}
           style={{ background: `linear-gradient(90deg, #4c9be8 0%, #4c9be8 ${obsPct}%, #3a3a37 ${obsPct}%, #3a3a37 100%)` }} />
-        <div className="st-days mono">{days.map(d => <span key={d}>{new Intl.DateTimeFormat("en-US", { timeZone: doc.tz, weekday: "short", day: "numeric" }).format(doc.t0 + d * 86400e3 + 3600e3)}</span>)}</div>
+        <div className="st-days mono">{days.map(d => <span key={d}>{new Intl.DateTimeFormat("en-US", { timeZone: doc.tz, weekday: "short", day: "numeric" }).format(doc.t0 + (k0 + d * 24 + 1) * 3600e3)}</span>)}</div>
         {power && powerOn && powerInfo && (
           <div className="st-rivers"><span className="mono">Power ·</span>
             <span className="rv-counts">{powerInfo.j === null

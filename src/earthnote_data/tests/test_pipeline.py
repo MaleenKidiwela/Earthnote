@@ -258,3 +258,16 @@ def test_ferry_frames(tmp_path, monkeypatch):
     assert what(65) == [("wsf", ["wsf:8"], "cancelled")]   # 01:10Z, rebuilt from the first snapshot; the Kittitas alert is from before the storm
     assert what(68) == [("bcf", ["bcf:TSA-SWB"], "delayed"), ("wsf", ["wsf:8"], "resuming")]
     assert fr[68]["counts"]["delayed"] == 1 and fr[68]["items"][0]["url"].endswith("serviceNoticeCode=9")
+
+
+def test_rolling_window():
+    from datetime import datetime, timezone
+    from earthnote_data import event as E
+    now = datetime(2026, 11, 30, 21, 40, tzinfo=timezone.utc)   # Mon Nov 30, 1:40 PM PST
+    ev = E._window(E.EVENTS["continuum"], now)
+    assert ev["first"] == (29 * 24 + 13) - 7 * 24   # 7 days before the current hour (13Z), from Nov 1 08Z
+    end = ev["start"].timestamp() + ev["hours"] * 3600
+    assert end == datetime(2026, 12, 4, 8, tzinfo=timezone.utc).timestamp()   # Thu Dec 4 00:00 PST: the first midnight 72 h out
+    assert ev["runs_from"] == datetime(2026, 11, 29, 18, tzinfo=timezone.utc)
+    fixed = E._window(E.EVENTS["nov2026_ar"], now)
+    assert fixed["first"] == 0 and fixed["hours"] == 240 and fixed["runs_from"] == datetime(2026, 11, 6, tzinfo=timezone.utc)

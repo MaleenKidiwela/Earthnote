@@ -19,6 +19,7 @@ import concurrent.futures as cf
 import html
 import io
 import json
+import os
 import time
 import urllib.parse
 import urllib.request
@@ -456,18 +457,19 @@ def archive_gauge(lid: str, d: dict) -> None:
     tmp.replace(path)
 
 
-def gauges(start: datetime, hours: int, now: datetime, log=print) -> list[dict]:
+def gauges(start: datetime, hours: int, now: datetime, log=print, archive: bool = True) -> list[dict]:
     """Each gauge's measured stage at the end of every hour of the window, and for hours still ahead the NWS river
     forecast (its 6-hourly points interpolated to the hour), with the time that forecast was issued. Every gauge in
-    the region, with flood stages or not, is also archived (archive_gauge)."""
+    the region, with flood stages or not, is also archived (archive_gauge), unless `archive` is off (only the view
+    that records writes the archive, so two updates never write a gauge's file at once)."""
     details = {g["lid"]: g for g in gauge_details(log)}
     stageflow = {}
     def fetch(lid):
         d = _nwps(f"/{lid}/stageflow")
-        if d:
+        if d and archive:
             archive_gauge(lid, d)
-            if lid in details:
-                stageflow[lid] = d
+        if d and lid in details:
+            stageflow[lid] = d
     with cf.ThreadPoolExecutor(16) as io:
         list(io.map(fetch, all_gauges()))
 
@@ -527,7 +529,9 @@ def high_water(ids: list[int]) -> dict[int, float]:
         for i in chunk:
             known.setdefault(i, 0.0)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(known))
+    tmp = path.with_suffix(f".{os.getpid()}.tmp")   # two updates may write it at once
+    tmp.write_text(json.dumps(known))
+    tmp.replace(path)
     return known
 
 

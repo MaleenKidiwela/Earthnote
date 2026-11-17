@@ -195,13 +195,13 @@ def bc_wells(start: datetime, hours: int, now: datetime) -> list[dict]:
         return [w for w in ex.map(one, wells) if w]
 
 
-def update(out_dir, start: datetime, hours: int, now: datetime, log=print) -> None:
-    """Write ground/snow.json and ground/wells.json for the window."""
+def update(out_dir, start: datetime, hours: int, now: datetime, log=print, k0: int = 0) -> None:
+    """Write ground/snow.json and ground/wells.json for the window (`k0`: the event frame its first hour is)."""
     out_dir.mkdir(parents=True, exist_ok=True)
     stamp = now.strftime("%Y-%m-%dT%H:%M:%SZ")
     snow = snotel(start, hours, now, log) + bc_snow(start, hours, now)
-    (out_dir / "snow.json").write_text(json.dumps({"updated": stamp, "sites": snow}, separators=(",", ":")))
+    (out_dir / "snow.json").write_text(json.dumps({"updated": stamp, "k0": k0, "sites": snow}, separators=(",", ":")))
     wells = usgs_wells(start, hours, now) + bc_wells(start, hours, now)
-    (out_dir / "wells.json").write_text(json.dumps({"updated": stamp, "sites": wells}, separators=(",", ":")))
+    (out_dir / "wells.json").write_text(json.dumps({"updated": stamp, "k0": k0, "sites": wells}, separators=(",", ":")))
     soil = sum(1 for s in snow if "sm2" in s)
     log(f"ground: {len(snow)} snow stations ({soil} with soil moisture), {len(wells)} groundwater wells")

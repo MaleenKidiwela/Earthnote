@@ -26,13 +26,14 @@ export class TideMarkers {
     Object.assign(this, { root, scene });
     this.el = document.createElement("div"); this.el.className = "place-layer res-layer"; root.appendChild(this.el);
     this.tip = document.createElement("div"); this.tip.className = "res-tip gauge-tip"; this.el.appendChild(this.tip);
-    this.items = []; this.k = 0; this.visible = true; this._n = 0; this.maxSurge = null;
+    this.items = []; this.k = 0; this.k0 = 0; this.kAbs = 0; this.visible = true; this._n = 0; this.maxSurge = null;
   }
 
   async load(doc) {
     const res = await fetch(`${doc.base}sea/tides.json?u=${encodeURIComponent(doc.updated)}`);
     if (!res.ok) return;
-    const { sites } = await res.json();
+    const { sites, k0 = 0 } = await res.json();
+    this.k0 = k0;   // the event frame each series starts at
     for (const it of this.items) it.node.remove();
     const P = this.scene.P;
     this.items = sites.map((s, i) => {
@@ -45,10 +46,12 @@ export class TideMarkers {
       this.el.appendChild(node);
       return it;
     });
-    this.setHour(this.k);
+    this.setHour(this.kAbs);
   }
 
+  // k: the event's frame; this.k: the index into the series
   setHour(k) {
+    this.kAbs = k; k -= this.k0 ?? 0;
     this.k = k; this.maxSurge = null;
     for (const it of this.items) {
       const t = (it.value = tideAt(it, k)), c = (it.cat = t ? floodOf(it, t.level) : null);

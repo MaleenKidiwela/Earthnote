@@ -9,6 +9,7 @@ export async function loadEvent(key, base = EVENTS_BASE, fetchImpl = fetch) {
   const doc = await res.json();
   doc.base = `${base}${key}/`;
   doc.t0 = Date.parse(doc.start);
+  doc.first ??= 0;   // a rolling view keeps only its last days: hours [first, hours)
   doc.runList = Object.fromEntries(Object.entries(doc.runs).map(([m, runs]) => [m, Object.entries(runs)
     .map(([init, r]) => ({ model: m, init, time: initTime(init), frames: new Set(r.frames), complete: r.complete }))
     .sort((a, b) => a.time - b.time)]));
@@ -114,13 +115,13 @@ export class RainSeries {
     return { src, mm: resample(rainFromBytes(f.data, g.cols * g.rows), g, this.doc.grids.rain) };
   }
 
-  // Sum of hours [first, k], where first is 0 in blend mode and the run's first hour in run mode. Checkpoints every
+  // Sum of hours [first, k], where first is the window's first kept hour in blend mode and the run's first hour in run mode. Checkpoints every
   // 12 hours make scrubbing cheap; they are keyed by the selection, since each selection is its own series.
   async accumulated(k, sel) {
     const g = this.doc.grids.rain, n = g.cols * g.rows, key = JSON.stringify(sel);
     let cps = this.checkpoints.get(key);
     if (!cps) { cps = new Map(); this.checkpoints.set(key, cps); }
-    const first = sel.mode === "run" ? Math.min(...(this.doc.runList[sel.model].find(r => r.init === sel.init)?.frames ?? [0])) : 0;
+    const first = sel.mode === "run" ? Math.min(...(this.doc.runList[sel.model].find(r => r.init === sel.init)?.frames ?? [0])) : this.doc.first ?? 0;
     if (k < first) return null;
     let from = first, sum = new Float32Array(n), seen = new Uint8Array(n);
     for (let c = Math.floor(k / 12) * 12; c >= first; c -= 12) {
