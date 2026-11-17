@@ -271,3 +271,16 @@ def test_rolling_window():
     assert ev["runs_from"] == datetime(2026, 11, 29, 18, tzinfo=timezone.utc)
     fixed = E._window(E.EVENTS["nov2026_ar"], now)
     assert fixed["first"] == 0 and fixed["hours"] == 240 and fixed["runs_from"] == datetime(2026, 11, 6, tzinfo=timezone.utc)
+
+
+def test_station_series_kept_once_per_folder(tmp_path, monkeypatch):
+    import gzip
+    from earthnote_data import event as E
+    monkeypatch.setattr(E, "OUT", tmp_path / "out"); monkeypatch.setattr(E, "STATIONS", tmp_path / "stations")
+    (tmp_path / "out" / "sea").mkdir(parents=True)
+    (tmp_path / "out" / "sea" / "tides.json").write_text('{"sites": [1]}')
+    E.keep_station_series("20261117", log=lambda *_: None)
+    (tmp_path / "out" / "sea" / "tides.json").write_text('{"sites": [2]}')
+    E.keep_station_series("20261117", log=lambda *_: None)   # the day's copy is kept as first saved
+    assert gzip.decompress((tmp_path / "stations" / "20261117" / "tides.json.gz").read_bytes()) == b'{"sites": [1]}'
+    assert not (tmp_path / "stations" / "20261117" / "snow.json.gz").exists()   # missing (a failed fetch): left for a later run that day

@@ -387,6 +387,26 @@ def run_inits(now: datetime) -> list[str]:
     return out
 
 
+STATION_FILES = ("ground/snow.json", "ground/wells.json", "rivers/reservoirs.json", "sea/tides.json")
+STATIONS = ROOT / "data" / "archive" / "stations"
+
+
+def keep_station_series(folder: str, log=print) -> None:
+    """Save the view's station series as the map shows them (snow, soil moisture, groundwater, reservoirs, tides) to
+    the recordings, once per `folder` and file. The agencies keep these records, but revise provisional readings
+    later, so this is the version the map showed."""
+    import gzip
+    saved = []
+    for f in STATION_FILES:
+        src, dest = OUT / f, STATIONS / folder / f"{Path(f).stem}.json.gz"
+        if src.exists() and not dest.exists():
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(gzip.compress(src.read_bytes()))
+            saved.append(Path(f).stem)
+    if saved:
+        log(f"station series as shown saved to stations/{folder}: {', '.join(saved)}")
+
+
 def prune(st: dict, now: datetime, log=print) -> None:
     """A rolling view: delete the hours before FIRST and the forecast runs older than a day, from the frames and the
     state (the recordings and the public archives still hold them)."""
@@ -587,6 +607,8 @@ def update(workers: int = 24, log=print, record: bool = True) -> dict:
     st["obs"]["gust"] = sorted(set(st["obs"]["gust"]))
     if "back" in EVENT:
         prune(st, now, log)
+    if record:   # a day's copy (the recording view's)
+        keep_station_series(now.strftime("%Y%m%d"), log)
     doc = {
         "key": EVENT["key"], "title": EVENT["title"], "start": EVENT["start"].isoformat(), "hours": EVENT["hours"], "first": FIRST,
         **({"rolling": {"back": EVENT["back"], "ahead": EVENT["ahead"]}} if "back" in EVENT else {}),
@@ -687,6 +709,7 @@ def main(argv=None) -> None:
     ap.add_argument("--no-record", action="store_true", help="read the feeds' recordings but take no new snapshot (another view records)")
     args = ap.parse_args(argv)
     if EVENT.get("until") and datetime.now(W.UTC) > EVENT["until"]:
+        keep_station_series(f"{EVENT['key']}_final")   # once: the event's series as it was left
         print(f"{EVENT['key']} is finished (frozen since {EVENT['until']:%b %d %H}Z); nothing to do"); return
     lock = open(ROOT / "data" / f".event.{EVENT['key']}.lock", "w")
     try:
