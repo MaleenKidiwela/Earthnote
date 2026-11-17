@@ -3,11 +3,26 @@ import { esc } from "./ReservoirMarkers.js";
 import "./overlay.css";
 
 // NWS river gauges on the storm's hour: the measured stage (or, for hours not measured yet and if asked, the official
-// river forecast) against the gauge's flood categories, with the NWS's written impact for that level on hover.
+// river forecast) against the gauge's flood categories, with the NWS's written impact for that level on hover. And
+// BC's (Water Survey of Canada), which have no flood stages: their flow (lakes: level) against the station's own
+// annual peaks: a typical year's peak, the 1-in-10-year peak, the record.
 
 export const CATS = ["action", "minor", "moderate", "major"];
 export const CAT_LABELS = { action: "action stage", minor: "minor flood", moderate: "moderate flood", major: "major flood" };
 export const CAT_COLORS = { normal: "#6fb4e8", action: "#f2cf3d", minor: "#f39431", moderate: "#e2483a", major: "#b03fd0" };
+export const BC_CATS = ["p2", "p10", "rec"];
+export const BC_LABELS = { p2: "above a typical year's peak", p10: "above the 1-in-10-year peak", rec: "above the record" };
+export const BC_SHORT = { p2: "yearly peak", p10: "10-yr peak", rec: "record" };
+export const BC_COLORS = { p2: "#f2cf3d", p10: "#e2483a", rec: "#b03fd0" };
+const UNIT = { q: "m³/s", h: "m" };
+const fmt = (v, key) => (key === "h" ? v.toFixed(2) : v >= 100 ? Math.round(v).toLocaleString("en-US") : v.toFixed(1));
+
+// Pure: the highest of a BC gauge's peaks a value reaches, or null (none for a gauge with no rating).
+export function bcCategoryOf(site, v) {
+  const p = site.rate && site.peaks?.[site.rate];
+  if (!p) return null;
+  return v >= p.rec[0] ? "rec" : p.p10 !== undefined && v >= p.p10 ? "p10" : v >= p.p2 ? "p2" : null;
+}
 
 // Pure: the highest category a stage reaches, or null.
 export function categoryOf(site, stage) {
@@ -44,13 +59,15 @@ export class GaugeMarkers {
   }
 
   async load(doc) {
-    const res = await fetch(`${doc.base}rivers/gauges.json?u=${encodeURIComponent(doc.updated)}`);
-    if (!res.ok) return;
-    const { sites, k0 = 0 } = await res.json();
-    this.k0 = k0;   // the event frame each series starts at (a rolling view keeps only its last days)
+    const get = f => fetch(`${doc.base}rivers/${f}?u=${encodeURIComponent(doc.updated)}`).then(r => (r.ok ? r.json() : null), () => null);
+    const [us, bc] = await Promise.all([get("gauges.json"), get("bc_gauges.json")]);
+    if (!us && !bc) return;
+    this.k0 = (us ?? bc).k0 ?? 0;   // the event frame each series starts at (a rolling view keeps only its last days)
     for (const it of this.items) it.node.remove();
     const P = this.scene.P;
-    this.items = sites.map((s, i) => {
+    // a BC gauge reads as one of NWS's: its shown series (the rated one, else flow, else level) as "obs", no forecast
+    const bcSites = (bc?.sites ?? []).map(s => { const key = s.rate ?? (s.q ? "q" : "h"); return { ...s, station: s.id, key, obs: s[key], fc: [] }; });
+    this.items = [...(us?.sites ?? []), ...bcSites].map((s, i) => {
       const node = document.createElement("div"); node.className = "gauge";
       node.innerHTML = `<i></i><span class="n"></span><span class="v mono"></span>`;
       const it = { ...s, id: i, node, x: P.toX(s.lon), z: P.toZ(s.lat), on: false };
@@ -66,14 +83,15 @@ export class GaugeMarkers {
   // k: the event's frame; this.k: the index into the series
   setHour(k, whatIf = this.whatIf) {
     this.kAbs = k; k -= this.k0 ?? 0;
-    this.k = k; this.whatIf = whatIf; this.counts = { action: 0, minor: 0, moderate: 0, major: 0 };
+    this.k = k; this.whatIf = whatIf; this.counts = { action: 0, minor: 0, moderate: 0, major: 0, p2: 0, p10: 0, rec: 0 };
     for (const it of this.items) {
-      const v = (it.value = stageAt(it, k, whatIf)), c = (it.cat = v ? categoryOf(it, v.stage) : null);
+      const bc = it.src === "WSC", v = (it.value = stageAt(it, k, whatIf));
+      const c = (it.cat = v ? (bc ? bcCategoryOf(it, v.stage) : categoryOf(it, v.stage)) : null);
       if (c) this.counts[c]++;
       it.node.dataset.cat = c ?? "normal";
       it.node.classList.toggle("fc", v?.type === "fc");
       it.node.classList.toggle("none", !v);
-      it.node.querySelector(".v").textContent = v ? `${v.stage.toFixed(1)} ft${c ? ` · ${c}` : ""}` : "—";
+      it.node.querySelector(".v").textContent = !v ? "—" : bc ? `${fmt(v.stage, it.key)} ${UNIT[it.key]}${c ? ` · ${BC_SHORT[c]}` : ""}` : `${v.stage.toFixed(1)} ft${c ? ` · ${c}` : ""}`;
       it.w = 22 + (it.node.querySelector(".n").textContent.length + 14) * 6;
     }
     if (this.hover) this._tip();
@@ -89,7 +107,8 @@ export class GaugeMarkers {
       const [x, y, z] = s.project(it.x, s.elevAt(it.lon, it.lat) * s.e + 0.05, it.z);
       if (!(z < 1 && x > -40 && x < W + 40 && y > -20 && y < H + 20)) continue;
       it.cand = true; it.sx = x; it.sy = y;
-      cand.push({ id: it.id, x, y, w: it.w, h: 18, priority: 20 + (it.cat ? 10 * (CATS.indexOf(it.cat) + 1) : 0) });
+      const rank = it.cat ? (it.src === "WSC" ? [2, 3, 4][BC_CATS.indexOf(it.cat)] : CATS.indexOf(it.cat) + 1) : 0;
+      cand.push({ id: it.id, x, y, w: it.w, h: 18, priority: 20 + 10 * rank });
     }
     const shown = place(cand);
     for (const it of this.items) {
@@ -104,6 +123,7 @@ export class GaugeMarkers {
   _tip() {
     const it = this.hover;
     if (!it) return;
+    if (it.src === "WSC") return this._bcTip(it);
     const v = it.value, n = it.obs.length;
     const all = [...it.obs, ...it.fc].filter(x => x !== null);
     const stages = Object.values(it.cats);
@@ -124,6 +144,29 @@ export class GaugeMarkers {
       (it.crests?.length ? `<div class="sub mono">record ${it.crests[0][0]} ft (${esc(it.crests[0][1])})</div>` : "");
     this.tip.style.transform = `translate(${Math.round(Math.min(it.sx + 12, innerWidth - 300))}px, ${Math.round(Math.min(it.sy + 14, innerHeight - 260))}px)`;
     this.tip.style.opacity = 1;
+  }
+
+  _place(it) {
+    this.tip.style.transform = `translate(${Math.round(Math.min(it.sx + 12, innerWidth - 300))}px, ${Math.round(Math.min(it.sy + 14, innerHeight - 260))}px)`;
+    this.tip.style.opacity = 1;
+  }
+
+  // a BC gauge: flow (or level) for the hour against its annual peaks, the other measure, and its hydrograph
+  _bcTip(it) {
+    const v = it.value, n = it.obs.length, u = UNIT[it.key], p = it.rate ? it.peaks[it.rate] : null;
+    const lv = [["p2", p?.p2], ["p10", p?.p10], ["rec", p?.rec[0]]].filter(([, x]) => x !== undefined && x !== null);
+    const all = it.obs.filter(x => x !== null);
+    const lo = Math.min(...all), hi = Math.max(...all, p?.p2 ?? -Infinity);
+    const X = i => (i / (n - 1)) * 220, Y = s => 50 - ((s - lo) / Math.max(hi - lo, it.key === "h" ? 0.1 : 1)) * 46;
+    const path = it.obs.map((s, i) => (s === null ? null : [i, s])).filter(Boolean).map(([i, s], j) => `${j ? "L" : "M"}${X(i).toFixed(1)},${Y(s).toFixed(1)}`).join("");
+    const lines = lv.filter(([, x]) => x <= hi + 0.001).map(([c, x]) => `<line class="cat" stroke="${BC_COLORS[c]}" x1="0" x2="220" y1="${Y(x).toFixed(1)}" y2="${Y(x).toFixed(1)}" />`).join("");
+    const other = it.key === "q" ? "h" : "q", ov = it[other]?.[this.k];
+    this.tip.innerHTML = `<b>${esc(it.name)}</b><div class="sub">Water Survey of Canada ${esc(it.station)} · provisional</div>` +
+      (v ? `<div class="mono">${fmt(v.stage, it.key)} ${u} · ${v.latest ? "latest measurement" : "measured"}${ov !== null && ov !== undefined ? ` <span class="sub">(${it.key === "q" ? "level" : "flow"} ${fmt(ov, other)} ${UNIT[other]})</span>` : ""}</div>` +
+        `<div class="cat-line"><i style="background:${it.cat ? BC_COLORS[it.cat] : CAT_COLORS.normal}"></i>${it.cat ? BC_LABELS[it.cat] : p ? "below a typical year's peak" : "no peaks to compare with"}</div>` : "<div>no reading for this hour</div>") +
+      (p ? `<div class="sub mono">peaks over ${p.n} years: typical ${fmt(p.p2, it.key)}${p.p10 !== undefined ? ` · 1-in-10 ${fmt(p.p10, it.key)}` : ""} · record ${fmt(p.rec[0], it.key)} ${u} (${esc(p.rec[1])})</div>` : "") +
+      `<svg width="220" height="54" aria-hidden="true">${lines}<path d="${path}" /><line x1="${X(this.k)}" x2="${X(this.k)}" y1="0" y2="54" /></svg>`;
+    this._place(it);
   }
 
   setVisible(on) { this.visible = on; this.el.style.display = on ? "" : "none"; }

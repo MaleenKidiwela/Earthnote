@@ -32,6 +32,7 @@
 .gauge .n { font-size: 10.5px; color: #e4e2dc; } .gauge .v { font-size: 10.5px; color: #b9b6ad; }
 .gauge[data-cat="action"] i { background: #f2cf3d; } .gauge[data-cat="minor"] i { background: #f39431; }
 .gauge[data-cat="moderate"] i { background: #e2483a; } .gauge[data-cat="major"] i { background: #b03fd0; }
+.gauge[data-cat="p2"] i { background: #f2cf3d; } .gauge[data-cat="p10"] i { background: #e2483a; } .gauge[data-cat="rec"] i { background: #b03fd0; }
 .gauge:not([data-cat="normal"]) { border-color: rgba(242, 207, 61, 0.6); } .gauge:not([data-cat="normal"]) .v { color: #f4e3a8; font-weight: 600; }
 .gauge.fc { border-style: dashed; } .gauge.fc .v::after { content: " (fcst)"; font-weight: 400; color: #9a978e; }
 .gauge-tip { width: 280px; } .gauge-tip .cat-line { display: flex; align-items: center; gap: 5px; margin: 2px 0; }

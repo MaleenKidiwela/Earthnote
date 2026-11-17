@@ -105,3 +105,16 @@ describe("ferries", async () => {
     expect(s.get("").items).toHaveLength(1);
   });
 });
+
+describe("BC river gauges", async () => {
+  const { bcCategoryOf } = await import("../overlay/GaugeMarkers.js");
+  const site = { rate: "q", peaks: { q: { n: 61, p2: 1340, p10: 2076, rec: [3140, "2003-10-18"] } } };
+  it("rates flow against the station's annual peaks", () => {
+    expect(bcCategoryOf(site, 900)).toBe(null);
+    expect(bcCategoryOf(site, 1340)).toBe("p2");
+    expect(bcCategoryOf(site, 2370)).toBe("p10");
+    expect(bcCategoryOf(site, 3200)).toBe("rec");
+    expect(bcCategoryOf({ ...site, peaks: { q: { n: 8, p2: 10, rec: [20, ""] } } }, 15)).toBe("p2");   // no 1-in-10 under 10 years
+    expect(bcCategoryOf({ ...site, rate: null }, 5000)).toBe(null);   // unrated: a river with level only
+  });
+});

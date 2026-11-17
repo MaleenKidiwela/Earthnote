@@ -3,7 +3,7 @@ import { FrameCache, RainSeries, frameTime, frameUrl, gridOf, initTime, pacific,
 import { riverSource } from "../data/rivers.js";
 import { FILLS, RAIN_COLORS, TEMP_COLORS } from "../scene/AtmosphereLayer.js";
 import { RIVER_COLORS, RIVER_LABELS } from "../scene/RiverLayer.js";
-import { CATS, CAT_COLORS } from "../overlay/GaugeMarkers.js";
+import { BC_CATS, BC_COLORS, BC_SHORT, CATS, CAT_COLORS } from "../overlay/GaugeMarkers.js";
 import { GUST_COLORS, GUST_MPH } from "../scene/GustField.js";
 import { OUTAGE_COLOR } from "../scene/PowerLayer.js";
 import { PASS_COLOR, ROAD_COLORS, ROAD_LABELS } from "../scene/RoadLayer.js";
@@ -410,6 +410,7 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
         {gauges && gaugesOn && gaugeCounts && (
           <div className="st-rivers"><span className="mono">Gauges ·</span>
             <span className="rv-counts">{CATS.some(c => gaugeCounts[c]) ? CATS.filter(c => gaugeCounts[c]).map(c => <span key={c}><i style={{ background: CAT_COLORS[c] }} />{gaugeCounts[c]} {c}</span>) : <span>none at action or flood stage</span>}</span>
+            {BC_CATS.some(c => gaugeCounts[c]) && <span className="rv-counts"><span>BC:</span>{BC_CATS.filter(c => gaugeCounts[c]).map(c => <span key={c}><i style={{ background: BC_COLORS[c] }} />{gaugeCounts[c]} {BC_SHORT[c]}</span>)}</span>}
           </div>
         )}
         {rivers && riversOn && (
@@ -502,7 +503,7 @@ export default function StormPanel({ doc, layer, rivers, reservoirs, ground, gau
           )}
           {gauges && (
             <button className="tog" role="switch" aria-checked={gaugesOn} onClick={() => setGaugesOn(g => !g)}>
-              <span className="sw" /><span className="t">River gauges<small>NWS gauges: measured stage against flood stages, with the NWS impact statement on hover</small></span>
+              <span className="sw" /><span className="t">River gauges<small>NWS gauges: measured stage against flood stages, with the NWS impact statement on hover. BC (Water Survey of Canada): flow against the station's own annual peaks (a typical year's, the 1-in-10-year, the record)</small></span>
             </button>
           )}
           {reservoirs && (

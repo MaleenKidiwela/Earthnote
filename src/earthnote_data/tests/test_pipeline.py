@@ -290,3 +290,17 @@ def test_feed_pages_stripped():
     from earthnote_data import feeds as FD
     page = '<html><head><style>.a{}</style><script>var x=1;</script></head><body><!-- c --><p>Sailings cancelled</p><svg><path/></svg></body></html>'
     assert FD.strip_page(page) == "<html><head></head><body><p>Sailings cancelled</p></body></html>"
+
+
+def test_bc_gauge_peaks_and_rows():
+    from earthnote_data import wsc as WS
+    t = WS._thresholds([(float(v), f"{2000 + v}-10-01") for v in range(1, 20)])   # peaks 1..19 over 19 years
+    assert t["n"] == 19 and t["p2"] == 10 and t["p10"] == 18 and t["rec"] == [19.0, "2019-10-01"]   # rank 2 of 19: 18
+    assert WS._thresholds([(1.0, "")] * 4) is None   # too few years to rate
+    assert "p10" not in WS._thresholds([(float(v), "") for v in range(1, 8)])
+    csv = ("ID,Date,Level,Grade,Symbol,QA/QC,Discharge,Grade,Symbol,QA/QC\n"
+           "08GA022,2026-11-15T00:05:00-08:00,6.210,,,1,2370,,,1\n"
+           "08GA022,2026-11-15T00:10:00-08:00,99999,,,1,,,,\n"
+           "08ZZ999,2026-11-15T00:05:00-08:00,1.0,,,1,2,,,1\n")
+    assert list(WS._rows(csv, {"08GA022"})) == [("08GA022", "2026-11-15T08:05Z", 6.21, 2370.0), ("08GA022", "2026-11-15T08:10Z", None, None)]
+    assert WS._name("SQUAMISH RIVER NEAR BRACKENDALE") == "Squamish River near Brackendale"

@@ -43,6 +43,7 @@ from . import rivers as RV
 from . import roads as RD
 from . import sewers as SW
 from . import weather as W
+from . import wsc as WS
 from .paths import BUNDLE, ROOT
 
 RUN_EVERY = 6                                          # hours: 00, 06, 12, 18 UTC
@@ -491,6 +492,14 @@ def update(workers: int = 24, log=print, record: bool = True) -> dict:
         log(f"gauges: {len(gs)} NWS river gauges")
     except Exception as e:
         log(f"gauges: skipped ({e})")
+    try:   # BC river gauges (Water Survey of Canada): online 30 days, so the recording view keeps a record of them
+        if record:
+            WS.record(now, log)
+        bc = WS.gauges(WINDOW_START, EVENT["hours"] - FIRST, now, log)
+        (RIVERS / "bc_gauges.json").write_text(json.dumps({"updated": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "k0": FIRST, "sites": bc}, separators=(",", ":")))
+        log(f"gauges: {len(bc)} BC river gauges")
+    except Exception as e:
+        log(f"gauges: BC skipped ({e})")
     try:   # snow, soil moisture and groundwater at stations: their records are kept, so the window is sampled again
         GR.update(OUT / "ground", WINDOW_START, EVENT["hours"] - FIRST, now, log, k0=FIRST)
     except Exception as e:
@@ -639,7 +648,7 @@ def update(workers: int = 24, log=print, record: bool = True) -> dict:
         "ferries": {"frames": st.get("ferries", {}), "statuses": FY.STATUSES},
         "sea": {"obs": sorted(set(st["sea"]["obs"])), "fc": st["sea"]["fc"], "grid": OC.SEA.meta(),
                 "encoding": "R, G: current east, north m/s = (byte - 128) / 25; B: sea level m = byte / 25 - 3; A = 0: land"},
-        "credits": {**W.CREDITS, **OC.CREDITS, "nwm": RV.CREDITS, "fim": "Flood outlines: NOAA NWS experimental inundation extent from the NWM analysis (maps.water.noaa.gov), recorded hourly", "nws": "River gauges: NOAA National Weather Service (NWPS) observed stage, flood categories, impact statements and river forecasts (NWRFC)", "power": PW.CREDITS, "roads": RD.CREDITS, "sewers": SW.CREDITS, "ferries": FY.CREDITS, "ground": GR.CREDITS, "usgs": "Reservoir levels: USGS National Water Information System and USACE CWMS (operators' provisional data)"},
+        "credits": {**W.CREDITS, **OC.CREDITS, "nwm": RV.CREDITS, "fim": "Flood outlines: NOAA NWS experimental inundation extent from the NWM analysis (maps.water.noaa.gov), recorded hourly", "nws": "River gauges: NOAA National Weather Service (NWPS) observed stage, flood categories, impact statements and river forecasts (NWRFC)", "power": PW.CREDITS, "roads": RD.CREDITS, "sewers": SW.CREDITS, "ferries": FY.CREDITS, "ground": GR.CREDITS, "wsc": WS.CREDITS, "usgs": "Reservoir levels: USGS National Water Information System and USACE CWMS (operators' provisional data)"},
     }
     (OUT / "event.json").write_text(json.dumps(doc, separators=(",", ":")))
     log(f"observed rain through frame {max(map(int, doc['obs']['rain']), default=-1)}; "
