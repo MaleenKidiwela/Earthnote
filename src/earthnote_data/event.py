@@ -33,6 +33,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 from PIL import Image
 
+from . import feeds as FD
 from . import ferries as FY
 from . import ground as GR
 from . import ocean as OC
@@ -555,6 +556,11 @@ def update(workers: int = 24, log=print, record: bool = True) -> dict:
         st["ferries"] = ferries
     except Exception as e:
         log(f"ferries: skipped ({e})")
+    if record:
+        try:   # more feeds that keep no history (more utilities, transit, ferries, school closures): recorded raw
+            FD.record(now, log)
+        except Exception as e:
+            log(f"feeds: skipped ({e})")
     try:   # NOAA's flood outlines: the service holds only the current hour, so it is recorded (and archived) as it goes
         if record:
             RV.fetch_inundation()

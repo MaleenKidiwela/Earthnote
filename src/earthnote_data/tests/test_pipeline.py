@@ -284,3 +284,9 @@ def test_station_series_kept_once_per_folder(tmp_path, monkeypatch):
     E.keep_station_series("20261117", log=lambda *_: None)   # the day's copy is kept as first saved
     assert gzip.decompress((tmp_path / "stations" / "20261117" / "tides.json.gz").read_bytes()) == b'{"sites": [1]}'
     assert not (tmp_path / "stations" / "20261117" / "snow.json.gz").exists()   # missing (a failed fetch): left for a later run that day
+
+
+def test_feed_pages_stripped():
+    from earthnote_data import feeds as FD
+    page = '<html><head><style>.a{}</style><script>var x=1;</script></head><body><!-- c --><p>Sailings cancelled</p><svg><path/></svg></body></html>'
+    assert FD.strip_page(page) == "<html><head></head><body><p>Sailings cancelled</p></body></html>"
